@@ -1,13 +1,15 @@
 # views/scanner.py  –  QQE Signal & Multi-Indicator Confluence Scanner (Windows 11 Light)
 """
 Runs QQE technical analysis with multi-indicator confluence scoring
-(Trend EMA 50/200, Volume Surge, RSI momentum, and Volatility)
+(Trend EMA 50/200, Volume Surge, RSI Divergence, Weekly Macro Trend)
 on all enabled symbols and displays signals with quality grades and risk levels.
+Provides CSV export and Telegram signal broadcasting.
 """
 from __future__ import annotations
 
+import csv
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, filedialog, messagebox
 from typing import TYPE_CHECKING
 
 from ui_utils import (
@@ -43,36 +45,36 @@ class ScannerTab(ttk.Frame):
             border_color="#c7d2fe",
             icon="🔍",
         )
-        self.params_card.pack(fill="x", pady=(0, 10))
+        self.params_card.pack(fill="x", pady=(0, 8))
 
         param_row = tk.Frame(self.params_card.body, bg="#f8faff")
         param_row.pack(fill="x")
 
         tk.Label(param_row, text="RSI Period:", font=FONT_BODY, bg="#f8faff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.rsi_var = tk.IntVar(value=14)
-        ttk.Spinbox(param_row, from_=2, to=50, textvariable=self.rsi_var, width=5).pack(side="left", padx=(0, 14))
+        ttk.Spinbox(param_row, from_=2, to=50, textvariable=self.rsi_var, width=5).pack(side="left", padx=(0, 12))
 
         tk.Label(param_row, text="SF:", font=FONT_BODY, bg="#f8faff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.sf_var = tk.IntVar(value=5)
-        ttk.Spinbox(param_row, from_=1, to=20, textvariable=self.sf_var, width=5).pack(side="left", padx=(0, 14))
+        ttk.Spinbox(param_row, from_=1, to=20, textvariable=self.sf_var, width=5).pack(side="left", padx=(0, 12))
 
         tk.Label(param_row, text="QQE Factor:", font=FONT_BODY, bg="#f8faff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.qqe_var = tk.DoubleVar(value=4.238)
-        ttk.Entry(param_row, textvariable=self.qqe_var, width=7).pack(side="left", padx=(0, 14))
+        ttk.Entry(param_row, textvariable=self.qqe_var, width=7).pack(side="left", padx=(0, 12))
 
         tk.Label(param_row, text="Threshold:", font=FONT_BODY, bg="#f8faff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.thresh_var = tk.IntVar(value=10)
-        ttk.Spinbox(param_row, from_=1, to=50, textvariable=self.thresh_var, width=5).pack(side="left", padx=(0, 16))
+        ttk.Spinbox(param_row, from_=1, to=50, textvariable=self.thresh_var, width=5).pack(side="left", padx=(0, 14))
 
         ttk.Button(param_row, text="🔍 Scan All Stocks", command=self._run_scan,
                    style="Accent.TButton").pack(side="right", padx=4)
 
-        # ── Filter Row ──────────────────────────────────────────────────
+        # ── Filter & Action Row ─────────────────────────────────────────
         filter_frame = ttk.Frame(self)
-        filter_frame.pack(fill="x", pady=(0, 10))
+        filter_frame.pack(fill="x", pady=(0, 8))
 
         self.filter_var = tk.StringVar(value="all")
-        ttk.Label(filter_frame, text="Filter:").pack(side="left", padx=(0, 8))
+        ttk.Label(filter_frame, text="Filter:").pack(side="left", padx=(0, 6))
         filters = [
             ("All Signals", "all"),
             ("⭐ High Conviction (Grade A/A+)", "high_conviction"),
@@ -81,39 +83,48 @@ class ScannerTab(ttk.Frame):
         ]
         for text, val in filters:
             ttk.Radiobutton(filter_frame, text=text, variable=self.filter_var,
-                            value=val, command=self._apply_filter).pack(side="left", padx=5)
+                            value=val, command=self._apply_filter).pack(side="left", padx=4)
+
+        # Export and Telegram Buttons on the right
+        ttk.Button(filter_frame, text="📱 Send to Telegram", command=self._send_to_telegram,
+                   style="Accent.TButton").pack(side="right", padx=4)
+        ttk.Button(filter_frame, text="📥 Export CSV", command=self._export_csv).pack(side="right", padx=4)
 
         self.count_var = tk.StringVar(value="0 signals found")
         ttk.Label(filter_frame, textvariable=self.count_var,
-                  font=FONT_BODY, foreground=WIN11_TEXT_MUTED).pack(side="right")
+                  font=FONT_BODY, foreground=WIN11_TEXT_MUTED).pack(side="right", padx=(0, 12))
 
         # ── Results Table ───────────────────────────────────────────────
         table_container = ttk.Frame(self)
         table_container.pack(fill="both", expand=True)
 
-        cols = ("symbol", "industry", "signal", "grade", "score", "trend", "vol_ratio", "price", "rsi_ma", "date")
+        cols = ("symbol", "industry", "signal", "grade", "score", "trend", "weekly", "div", "vol_ratio", "price", "rsi_ma", "date")
         self.tree = SortableTreeview(table_container, columns=cols, height=22)
         self.tree.heading("symbol", text="Symbol")
         self.tree.heading("industry", text="Industry")
         self.tree.heading("signal", text="Signal")
-        self.tree.heading("grade", text="Grade & Conviction")
+        self.tree.heading("grade", text="Grade & Stars")
         self.tree.heading("score", text="Score")
-        self.tree.heading("trend", text="Trend (200 EMA)")
+        self.tree.heading("trend", text="Daily Trend")
+        self.tree.heading("weekly", text="Weekly Macro")
+        self.tree.heading("div", text="Divergence")
         self.tree.heading("vol_ratio", text="Volume")
         self.tree.heading("price", text="Price (LKR)")
         self.tree.heading("rsi_ma", text="RSI")
         self.tree.heading("date", text="Date")
 
-        self.tree.column("symbol", width=95, minwidth=75)
-        self.tree.column("industry", width=130, minwidth=90)
-        self.tree.column("signal", width=80, minwidth=65, anchor="center")
-        self.tree.column("grade", width=125, minwidth=100, anchor="center")
-        self.tree.column("score", width=60, minwidth=50, anchor="center")
-        self.tree.column("trend", width=110, minwidth=85, anchor="center")
-        self.tree.column("vol_ratio", width=70, minwidth=55, anchor="center")
-        self.tree.column("price", width=85, minwidth=60, anchor="e")
-        self.tree.column("rsi_ma", width=65, minwidth=50, anchor="e")
-        self.tree.column("date", width=85, minwidth=75, anchor="center")
+        self.tree.column("symbol", width=90, minwidth=70)
+        self.tree.column("industry", width=115, minwidth=80)
+        self.tree.column("signal", width=75, minwidth=60, anchor="center")
+        self.tree.column("grade", width=120, minwidth=95, anchor="center")
+        self.tree.column("score", width=55, minwidth=45, anchor="center")
+        self.tree.column("trend", width=95, minwidth=75, anchor="center")
+        self.tree.column("weekly", width=85, minwidth=70, anchor="center")
+        self.tree.column("div", width=100, minwidth=75, anchor="center")
+        self.tree.column("vol_ratio", width=65, minwidth=50, anchor="center")
+        self.tree.column("price", width=80, minwidth=55, anchor="e")
+        self.tree.column("rsi_ma", width=60, minwidth=45, anchor="e")
+        self.tree.column("date", width=80, minwidth=70, anchor="center")
 
         scrollbar = ttk.Scrollbar(table_container, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=scrollbar.set)
@@ -173,13 +184,14 @@ class ScannerTab(ttk.Frame):
         for r in filtered:
             sig_text = "▲ LONG" if r["signal"] == 1 else "▼ SHORT"
             grade = r.get("grade", "B")
-            stars = r.get("stars", "⭐⭐⭐")
+            stars = r.get("stars", "★★★")
             score = r.get("score", 50)
             trend = r.get("trend", "—")
+            weekly = r.get("weekly_trend", "—")
+            div = r.get("divergence", "—")
             vol_ratio = r.get("vol_ratio", "1.0x")
             grade_display = f"{grade} {stars}"
 
-            # Choose tag based on grade
             if grade == "A+":
                 tag = "grade_a_plus"
             elif grade == "A":
@@ -196,6 +208,8 @@ class ScannerTab(ttk.Frame):
                 grade_display,
                 f"{score}/100",
                 trend,
+                weekly,
+                div,
                 vol_ratio,
                 f"{float(r['price']):.2f}",
                 f"{float(r['rsi_ma']):.2f}",
@@ -204,16 +218,75 @@ class ScannerTab(ttk.Frame):
 
         self.count_var.set(f"{len(filtered)} signals shown (of {len(self._all_results)})")
 
+    # ── Export & Telegram Broadcast Actions ─────────────────────────────
+
+    def _export_csv(self):
+        if not self._all_results:
+            messagebox.showwarning("No Data", "No scan results available to export. Run a scan first.")
+            return
+
+        file_path = filedialog.asksaveasfilename(
+            parent=self,
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            title="Export Signals to CSV",
+            initialfile="cse_signals_confluence.csv",
+        )
+        if not file_path:
+            return
+
+        try:
+            fields = [
+                "symbol", "industry", "signal_text", "grade", "score",
+                "trend", "weekly_trend", "divergence", "vol_ratio", "price",
+                "stop_loss", "trailing_stop", "target1", "target2", "atr", "date"
+            ]
+            with open(file_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
+                writer.writeheader()
+                writer.writerows(self._all_results)
+
+            messagebox.showinfo("Export Successful", f"Successfully exported {len(self._all_results)} signals to:\n{file_path}")
+            self.app.set_status(f"Exported {len(self._all_results)} signals to CSV")
+        except Exception as e:
+            messagebox.showerror("Export Error", f"Failed to save CSV file:\n{e}")
+
+    def _send_to_telegram(self):
+        if not self._all_results:
+            messagebox.showwarning("No Data", "No scan results available. Run a scan first.")
+            return
+
+        high_conv = [r for r in self._all_results if r.get("grade") in ["A+", "A"]]
+        count = len(high_conv) if high_conv else min(3, len(self._all_results))
+
+        if not messagebox.askyesno("Confirm Broadcast", f"Broadcast {count} top signals to Telegram?"):
+            return
+
+        self.app.set_status("Broadcasting signals to Telegram...")
+        self.app.start_progress()
+
+        ThreadedTask(
+            self.app.root,
+            target=self.app.engine.send_telegram_signals,
+            args=(self._all_results,),
+            on_done=self._on_telegram_done,
+            on_error=self._on_error,
+        ).start()
+
+    def _on_telegram_done(self, result: str):
+        self.app.stop_progress()
+        self.app.set_status(result)
+        messagebox.showinfo("Telegram Broadcast", result)
+
     def _on_error(self, exc: Exception):
         self.app.stop_progress()
-        self.app.set_status(f"Scan error: {exc}")
+        self.app.set_status(f"Error: {exc}")
 
     def _on_double_click(self, event):
         sel = self.tree.selection()
         if sel:
             symbol = self.tree.item(sel[0], "values")[0]
             if symbol:
-                # Find matching result row to forward entry & stop loss
                 matched = next((r for r in self._all_results if r["symbol"] == symbol), None)
                 entry = float(matched["price"]) if matched else None
                 stop_loss = float(matched.get("stop_loss", 0)) if matched else None

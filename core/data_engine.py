@@ -264,20 +264,173 @@ class DataEngine:
                 continue
         return items
 
+    # ── Advanced Technical Engines (Divergence, Multi-Timeframe, Fibonacci) ─
+
+    @staticmethod
+    def detect_divergence(df: pd.DataFrame, lookback: int = 30) -> Dict[str, Any]:
+        """
+        Detects Regular Bullish or Bearish Divergence between Price and 14-day RSI.
+        """
+        if df.empty or len(df) < 25:
+            return {"bullish": False, "bearish": False, "text": "—"}
+
+        close = df["close"]
+        delta = close.diff()
+        gain = delta.clip(lower=0)
+        loss = -delta.clip(upper=0)
+        avg_gain = gain.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
+        avg_loss = loss.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
+        rs = avg_gain / avg_loss.replace(0, np.nan)
+        rsi = 100 - (100 / (1 + rs))
+
+        recent_close = close.tail(lookback).values
+        recent_rsi = rsi.tail(lookback).values
+        n = len(recent_close)
+
+        # Detect local swing lows
+        lows = []
+        for i in range(2, n - 2):
+            if recent_close[i] <= recent_close[i - 1] and recent_close[i] <= recent_close[i - 2] and \
+               recent_close[i] <= recent_close[i + 1] and recent_close[i] <= recent_close[i + 2]:
+                lows.append((i, recent_close[i], recent_rsi[i]))
+
+        bullish = False
+        if len(lows) >= 2:
+            prev_low, curr_low = lows[-2], lows[-1]
+            if curr_low[1] < prev_low[1] and curr_low[2] > (prev_low[2] + 1.0) and curr_low[2] < 50:
+                bullish = True
+
+        # Detect local swing highs
+        highs = []
+        for i in range(2, n - 2):
+            if recent_close[i] >= recent_close[i - 1] and recent_close[i] >= recent_close[i - 2] and \
+               recent_close[i] >= recent_close[i + 1] and recent_close[i] >= recent_close[i + 2]:
+                highs.append((i, recent_close[i], recent_rsi[i]))
+
+        bearish = False
+        if len(highs) >= 2:
+            prev_high, curr_high = highs[-2], highs[-1]
+            if curr_high[1] > prev_high[1] and curr_high[2] < (prev_high[2] - 1.0) and curr_high[2] > 50:
+                bearish = True
+
+        text = "🎯 Bullish Div" if bullish else ("⚠️ Bearish Div" if bearish else "—")
+        return {"bullish": bullish, "bearish": bearish, "text": text}
+
+    @staticmethod
+    def compute_weekly_trend(df: pd.DataFrame) -> Dict[str, Any]:
+        """
+        Resamples daily bars to weekly bars and checks 20-week EMA macro trend.
+        """
+        if df.empty or len(df) < 25:
+            return {"weekly_bullish": True, "weekly_text": "▲ Bullish"}
+
+        try:
+            df_w = df.resample("W-FRI").agg({
+                "open": "first",
+                "high": "max",
+                "low": "min",
+                "close": "last",
+                "volume": "sum"
+            }).dropna(subset=["close"])
+
+            if len(df_w) < 5:
+                return {"weekly_bullish": True, "weekly_text": "▲ Bullish"}
+
+            span = min(20, len(df_w))
+            w_ema = df_w["close"].ewm(span=span, adjust=False).mean()
+            last_close = float(df_w["close"].iloc[-1])
+            last_w_ema = float(w_ema.iloc[-1])
+
+            is_bull = last_close >= last_w_ema
+            return {
+                "weekly_bullish": is_bull,
+                "weekly_text": "▲ Bullish" if is_bull else "▼ Bearish",
+                "weekly_ema": round(last_w_ema, 2),
+            }
+        except Exception:
+            return {"weekly_bullish": True, "weekly_text": "▲ Bullish"}
+
+    @staticmethod
+    def compute_fibonacci_levels(df: pd.DataFrame, lookback: int = 120) -> Dict[str, float]:
+        """
+        Computes standard Fibonacci retracement levels from highest high to lowest low.
+        """
+        if df.empty or len(df) < 10:
+            return {}
+
+        sub = df.tail(lookback)
+        high_max = float(sub["high"].max())
+        low_min = float(sub["low"].min())
+        diff = high_max - low_min
+        if diff <= 0:
+            return {}
+
+        return {
+            "fib_0": round(high_max, 2),
+            "fib_236": round(high_max - 0.236 * diff, 2),
+            "fib_382": round(high_max - 0.382 * diff, 2),
+            "fib_500": round(high_max - 0.500 * diff, 2),
+            "fib_618": round(high_max - 0.618 * diff, 2),
+            "fib_786": round(high_max - 0.786 * diff, 2),
+            "fib_100": round(low_min, 2),
+        }
+
+    def send_telegram_signals(self, signals: List[Dict[str, Any]]) -> str:
+        """
+        Broadcasts high-conviction signals to Telegram using formatted cards.
+        """
+        if not signals:
+            return "No signals provided to send."
+
+        top_signals = [s for s in signals if s.get("grade") in ["A+", "A"]][:5]
+        if not top_signals:
+            top_signals = signals[:3]
+
+        lines = [
+            "🚀 *CSE High-Conviction Signal Alert*",
+            f"📅 *Date:* `{top_signals[0].get('date', 'Today')}`",
+            "────────────────────────",
+        ]
+        for s in top_signals:
+            sym = s.get("symbol", "")
+            sig = s.get("signal_text", "LONG")
+            grade = s.get("grade", "A")
+            stars = s.get("stars", "★★★★")
+            price = s.get("price", "0.00")
+            sl = s.get("stop_loss", "0.00")
+            t1 = s.get("target1", "0.00")
+            t2 = s.get("target2", "0.00")
+            vol = s.get("vol_ratio", "1.0x")
+            div = s.get("divergence", "—")
+            weekly = s.get("weekly_trend", "▲ Bullish")
+
+            lines.append(f"*{sym}* | `{sig}` ({grade} {stars})")
+            lines.append(f"• *Entry:* `{price} LKR` | *Stop:* `{sl} LKR`")
+            lines.append(f"• *Target 1:* `{t1}` | *Target 2:* `{t2}`")
+            lines.append(f"• *Volume:* `{vol}` | *Weekly:* `{weekly}` | *Div:* `{div}`")
+            lines.append("────────────────────────")
+
+        lines.append("⚠️ _CSE Analyzer Decision Support • Manage risk strictly_")
+        text = "\n".join(lines)
+        stocks.send_telegram_message(text, force=True)
+        return f"Successfully sent {len(top_signals)} signals to Telegram!"
+
     # ── Confluence & Risk Decision Support ─────────────────────────────
 
     def compute_confluence(self, df: pd.DataFrame, signal: int = 1) -> Dict[str, Any]:
         """
         Computes multi-indicator confluence score (0-100), quality grade,
-        support/resistance levels, and suggested trade parameters.
+        divergence, multi-timeframe weekly trend, and Fibonacci levels.
         """
         if df.empty or len(df) < 20:
             return {
                 "score": 50,
                 "grade": "B",
-                "stars": "⭐⭐⭐",
+                "stars": "★★★",
                 "trend_status": "Neutral",
                 "trend_text": "—",
+                "divergence": "—",
+                "weekly_trend": "▲ Bullish",
                 "vol_ratio": 1.0,
                 "vol_ratio_str": "1.0x",
                 "atr": 1.0,
@@ -288,8 +441,10 @@ class DataEngine:
                 "resistance1": 0.0,
                 "resistance2": 0.0,
                 "suggested_stop": 0.0,
+                "trailing_stop": 0.0,
                 "target1": 0.0,
                 "target2": 0.0,
+                "fibonacci": {},
             }
 
         close = df["close"]
@@ -330,7 +485,12 @@ class DataEngine:
         r1 = float(high.tail(min(20, len(high))).max())
         r2 = float(high.tail(min(250, len(high))).max())
 
-        # 5. Confluence Scoring (0 - 100)
+        # 5. Divergence & Multi-Timeframe Weekly Trend
+        div_info = self.detect_divergence(df, lookback=30)
+        weekly_info = self.compute_weekly_trend(df)
+        fib_levels = self.compute_fibonacci_levels(df, lookback=120)
+
+        # 6. Confluence Scoring (0 - 100)
         score = 25  # Base score for valid crossover signal
 
         # Trend scoring
@@ -338,58 +498,71 @@ class DataEngine:
             trend_text = "▲ Bullish" if is_above_200 else "▼ Below 200 EMA"
             trend_status = "Bullish" if is_above_200 else "Counter-Trend"
             if is_above_200:
-                score += 25
+                score += 20
             elif is_above_50:
-                score += 15
+                score += 10
             if is_golden_cross:
                 score += 10
+            # Weekly trend bonus
+            if weekly_info.get("weekly_bullish"):
+                score += 10
+            # Divergence bonus
+            if div_info.get("bullish"):
+                score += 15
         else:  # SHORT
             trend_text = "▼ Bearish" if not is_above_200 else "▲ Above 200 EMA"
             trend_status = "Bearish" if not is_above_200 else "Counter-Trend"
             if not is_above_200:
-                score += 25
+                score += 20
             elif not is_above_50:
-                score += 15
+                score += 10
             if not is_golden_cross:
                 score += 10
+            # Weekly trend bonus
+            if not weekly_info.get("weekly_bullish"):
+                score += 10
+            # Divergence bonus
+            if div_info.get("bearish"):
+                score += 15
 
         # Volume surge scoring
         if vol_ratio >= 2.0:
-            score += 25
-        elif vol_ratio >= 1.5:
             score += 20
-        elif vol_ratio >= 1.2:
+        elif vol_ratio >= 1.5:
             score += 15
-        elif vol_ratio >= 0.8:
+        elif vol_ratio >= 1.2:
             score += 10
+        elif vol_ratio >= 0.8:
+            score += 5
 
         # Volatility & price sanity bonus
         if 0 < (atr / c_last) < 0.08:
-            score += 15
+            score += 10
         else:
             score += 5
 
         score = max(10, min(100, score))
 
-        # Assign Grade
+        # Assign Grade (using standard unicode stars ★ to prevent font warnings)
         if score >= 80:
             grade = "A+"
-            stars = "⭐⭐⭐⭐⭐"
+            stars = "★★★★★"
         elif score >= 65:
             grade = "A"
-            stars = "⭐⭐⭐⭐"
+            stars = "★★★★"
         elif score >= 50:
             grade = "B"
-            stars = "⭐⭐⭐"
+            stars = "★★★"
         else:
             grade = "C"
-            stars = "⭐⭐"
+            stars = "★★"
 
-        # Suggested Stop Loss and Targets
+        # Suggested Stop Loss, Trailing Stop, and Targets
         if signal == 1:  # LONG
             suggested_stop = max(round(c_last - 1.5 * atr, 2), round(c_last * 0.90, 2))
             if suggested_stop >= c_last:
                 suggested_stop = round(c_last * 0.95, 2)
+            trailing_stop = round(max(0.1, c_last - 2.0 * atr), 2)
             risk_unit = c_last - suggested_stop
             target1 = round(c_last + 1.5 * risk_unit, 2)
             target2 = round(c_last + 2.5 * risk_unit, 2)
@@ -397,6 +570,7 @@ class DataEngine:
             suggested_stop = min(round(c_last + 1.5 * atr, 2), round(c_last * 1.10, 2))
             if suggested_stop <= c_last:
                 suggested_stop = round(c_last * 1.05, 2)
+            trailing_stop = round(c_last + 2.0 * atr, 2)
             risk_unit = suggested_stop - c_last
             target1 = round(max(0.1, c_last - 1.5 * risk_unit), 2)
             target2 = round(max(0.1, c_last - 2.5 * risk_unit), 2)
@@ -407,6 +581,8 @@ class DataEngine:
             "stars": stars,
             "trend_status": trend_status,
             "trend_text": trend_text,
+            "divergence": div_info.get("text", "—"),
+            "weekly_trend": weekly_info.get("weekly_text", "▲ Bullish"),
             "vol_ratio": round(vol_ratio, 2),
             "vol_ratio_str": f"{vol_ratio:.1f}x",
             "atr": round(atr, 2),
@@ -417,8 +593,10 @@ class DataEngine:
             "resistance1": round(r1, 2),
             "resistance2": round(r2, 2),
             "suggested_stop": suggested_stop,
+            "trailing_stop": trailing_stop,
             "target1": target1,
             "target2": target2,
+            "fibonacci": fib_levels,
         }
 
     def calculate_trade_risk(
@@ -542,12 +720,15 @@ class DataEngine:
                             "score": conf["score"],
                             "trend": conf["trend_text"],
                             "vol_ratio": conf["vol_ratio_str"],
+                            "divergence": conf["divergence"],
+                            "weekly_trend": conf["weekly_trend"],
                             "rsi_ma": f"{last.get('rsi_ma', 0):.2f}",
                             "fast_tl": f"{last.get('fast_tl', 0):.2f}",
                             "price": f"{last['close']:.2f}",
                             "date": df.index[-1].strftime("%Y-%m-%d"),
                             "atr": conf["atr"],
                             "stop_loss": conf["suggested_stop"],
+                            "trailing_stop": conf["trailing_stop"],
                             "target1": conf["target1"],
                             "target2": conf["target2"],
                             "support": conf["support1"],

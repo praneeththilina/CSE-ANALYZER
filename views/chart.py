@@ -1,7 +1,8 @@
 # views/chart.py  –  Interactive Charts & Smart Risk Calculator Tab (Windows 11 Light)
 """
 Candlestick + volume chart with QQE signals, EMA 50/200, dynamic Support/Resistance,
-and an integrated Smart Risk & Position Size Calculator tailored for the CSE (LKR + fees).
+Fibonacci retracement levels, and an integrated Smart Risk & Position Size Calculator
+tailored for the CSE (LKR + fees + presets + trailing stop).
 """
 from __future__ import annotations
 
@@ -67,7 +68,7 @@ class ChartTab(ttk.Frame):
         ttk.Button(ctrl, text="📈 Load Chart", style="Accent.TButton", command=self._on_load).pack(side="left", padx=4)
 
         # Period selector
-        ttk.Separator(ctrl, orient="vertical").pack(side="left", fill="y", padx=10)
+        ttk.Separator(ctrl, orient="vertical").pack(side="left", fill="y", padx=8)
         tk.Label(ctrl, text="Period:", font=("Segoe UI Semibold", 9), bg="#f0f7ff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.period_var = tk.StringVar(value="1Y")
         for p in ["1M", "3M", "6M", "1Y", "All"]:
@@ -75,22 +76,26 @@ class ChartTab(ttk.Frame):
                             command=self._on_load).pack(side="left", padx=2)
 
         # Indicator toggles
-        ttk.Separator(ctrl, orient="vertical").pack(side="left", fill="y", padx=10)
+        ttk.Separator(ctrl, orient="vertical").pack(side="left", fill="y", padx=8)
         self.show_ma_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(ctrl, text="EMA 50/200", variable=self.show_ma_var,
-                        command=self._on_load).pack(side="left", padx=4)
+                        command=self._on_load).pack(side="left", padx=3)
 
         self.show_qqe_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(ctrl, text="QQE Signals", variable=self.show_qqe_var,
-                        command=self._on_load).pack(side="left", padx=4)
+                        command=self._on_load).pack(side="left", padx=3)
 
         self.show_sr_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(ctrl, text="Support/Resistance", variable=self.show_sr_var,
-                        command=self._on_toggle_levels).pack(side="left", padx=4)
+                        command=self._on_toggle_levels).pack(side="left", padx=3)
+
+        self.show_fib_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(ctrl, text="Fibonacci", variable=self.show_fib_var,
+                        command=self._on_toggle_levels).pack(side="left", padx=3)
 
         self.show_targets_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(ctrl, text="Trade Targets", variable=self.show_targets_var,
-                        command=self._on_toggle_levels).pack(side="left", padx=4)
+                        command=self._on_toggle_levels).pack(side="left", padx=3)
 
         # ── Smart Risk & Position Size Calculator FormCard ─────────────
         self.risk_card = FormCard(
@@ -105,49 +110,66 @@ class ChartTab(ttk.Frame):
 
         # Inputs Row
         calc_row = tk.Frame(self.risk_card.body, bg="#f0fdf4")
-        calc_row.pack(fill="x", pady=(0, 4))
+        calc_row.pack(fill="x", pady=(0, 3))
 
         tk.Label(calc_row, text="Capital (LKR):", font=FONT_BODY, bg="#f0fdf4", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.calc_capital_var = tk.StringVar(value="500000")
-        ttk.Entry(calc_row, textvariable=self.calc_capital_var, width=11).pack(side="left", padx=(0, 10))
+        ttk.Entry(calc_row, textvariable=self.calc_capital_var, width=11).pack(side="left", padx=(0, 8))
 
         tk.Label(calc_row, text="Risk %:", font=FONT_BODY, bg="#f0fdf4", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.calc_risk_pct_var = tk.DoubleVar(value=2.0)
-        ttk.Spinbox(calc_row, from_=0.5, to=10.0, increment=0.5, textvariable=self.calc_risk_pct_var, width=5).pack(side="left", padx=(0, 10))
+        ttk.Spinbox(calc_row, from_=0.5, to=10.0, increment=0.5, textvariable=self.calc_risk_pct_var, width=5).pack(side="left", padx=(0, 8))
 
         tk.Label(calc_row, text="Entry (LKR):", font=FONT_BODY, bg="#f0fdf4", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.calc_entry_var = tk.StringVar(value="")
-        ttk.Entry(calc_row, textvariable=self.calc_entry_var, width=9).pack(side="left", padx=(0, 10))
+        ttk.Entry(calc_row, textvariable=self.calc_entry_var, width=9).pack(side="left", padx=(0, 8))
 
         tk.Label(calc_row, text="Stop-Loss (LKR):", font=FONT_BODY, bg="#f0fdf4", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.calc_stop_var = tk.StringVar(value="")
-        ttk.Entry(calc_row, textvariable=self.calc_stop_var, width=9).pack(side="left", padx=(0, 10))
+        ttk.Entry(calc_row, textvariable=self.calc_stop_var, width=9).pack(side="left", padx=(0, 8))
 
-        ttk.Button(calc_row, text="⚡ Calculate Risk", command=self._on_calc_risk).pack(side="left", padx=4)
-        ttk.Button(calc_row, text="🎯 Plot on Chart", command=self._on_plot_levels).pack(side="left", padx=4)
+        ttk.Button(calc_row, text="⚡ Calculate Risk", command=self._on_calc_risk).pack(side="left", padx=3)
+        ttk.Button(calc_row, text="🎯 Plot on Chart", command=self._on_plot_levels).pack(side="left", padx=3)
         ttk.Button(calc_row, text="💼 Send to Portfolio", command=self._send_to_portfolio, style="Accent.TButton").pack(side="right", padx=4)
+
+        # Quick Presets Row
+        preset_row = tk.Frame(self.risk_card.body, bg="#f0fdf4")
+        preset_row.pack(fill="x", pady=(0, 3))
+
+        tk.Label(preset_row, text="Capital Presets:", font=("Segoe UI", 8), bg="#f0fdf4", fg=WIN11_TEXT_MUTED).pack(side="left", padx=(0, 4))
+        for cap_txt, cap_val in [("250K", 250000), ("500K", 500000), ("1M", 1000000), ("2M", 2000000)]:
+            tk.Button(preset_row, text=cap_txt, font=("Segoe UI", 8), bg="#d1fae5", fg="#065f46", bd=0, padx=6, pady=1,
+                      cursor="hand2", command=lambda v=cap_val: self._set_capital_preset(v)).pack(side="left", padx=2)
+
+        tk.Label(preset_row, text="Risk Presets:", font=("Segoe UI", 8), bg="#f0fdf4", fg=WIN11_TEXT_MUTED).pack(side="left", padx=(10, 4))
+        for r_txt, r_val in [("1.0%", 1.0), ("2.0%", 2.0), ("3.0%", 3.0)]:
+            tk.Button(preset_row, text=r_txt, font=("Segoe UI", 8), bg="#e0e7ff", fg="#3730a3", bd=0, padx=6, pady=1,
+                      cursor="hand2", command=lambda v=r_val: self._set_risk_preset(v)).pack(side="left", padx=2)
 
         # Output Metrics Row
         metric_row = tk.Frame(self.risk_card.body, bg="#f0fdf4")
         metric_row.pack(fill="x", pady=(2, 0))
 
         self.lbl_shares = tk.Label(metric_row, text="Shares: —", font=FONT_BODY_BOLD, bg="#f0fdf4", fg="#059669")
-        self.lbl_shares.pack(side="left", padx=(0, 14))
+        self.lbl_shares.pack(side="left", padx=(0, 12))
 
         self.lbl_invest = tk.Label(metric_row, text="Investment: —", font=FONT_BODY, bg="#f0fdf4", fg=WIN11_TEXT_MAIN)
-        self.lbl_invest.pack(side="left", padx=(0, 14))
+        self.lbl_invest.pack(side="left", padx=(0, 12))
 
-        self.lbl_fees = tk.Label(metric_row, text="CSE Fees (~1.12%): —", font=FONT_BODY, bg="#f0fdf4", fg=WIN11_TEXT_MUTED)
-        self.lbl_fees.pack(side="left", padx=(0, 14))
+        self.lbl_fees = tk.Label(metric_row, text="CSE Fees: —", font=FONT_BODY, bg="#f0fdf4", fg=WIN11_TEXT_MUTED)
+        self.lbl_fees.pack(side="left", padx=(0, 12))
 
-        self.lbl_t1 = tk.Label(metric_row, text="Target 1 (1:1.5): —", font=FONT_BODY_BOLD, bg="#f0fdf4", fg="#0284c7")
-        self.lbl_t1.pack(side="left", padx=(0, 14))
+        self.lbl_t1 = tk.Label(metric_row, text="T1 (1:1.5): —", font=FONT_BODY_BOLD, bg="#f0fdf4", fg="#0284c7")
+        self.lbl_t1.pack(side="left", padx=(0, 12))
 
-        self.lbl_t2 = tk.Label(metric_row, text="Target 2 (1:2.5): —", font=FONT_BODY_BOLD, bg="#f0fdf4", fg="#059669")
-        self.lbl_t2.pack(side="left", padx=(0, 14))
+        self.lbl_t2 = tk.Label(metric_row, text="T2 (1:2.5): —", font=FONT_BODY_BOLD, bg="#f0fdf4", fg="#059669")
+        self.lbl_t2.pack(side="left", padx=(0, 12))
+
+        self.lbl_trail = tk.Label(metric_row, text="ATR Trail: —", font=FONT_BODY_BOLD, bg="#f0fdf4", fg="#7c3aed")
+        self.lbl_trail.pack(side="left", padx=(0, 12))
 
         self.lbl_loss = tk.Label(metric_row, text="Max Loss: —", font=FONT_BODY_BOLD, bg="#f0fdf4", fg="#c42b1c")
-        self.lbl_loss.pack(side="left", padx=(0, 10))
+        self.lbl_loss.pack(side="left", padx=(0, 8))
 
         # ── Chart Canvas Area ───────────────────────────────────────────
         self.chart_frame = tk.Frame(self, bg=WIN11_CARD_BG, highlightbackground="#cbd5e1",
@@ -156,7 +178,7 @@ class ChartTab(ttk.Frame):
 
         self._placeholder = tk.Label(
             self.chart_frame,
-            text="Select a CSE symbol and click 'Load Chart' to visualize candlesticks, signals & key levels",
+            text="Select a CSE symbol and click 'Load Chart' to visualize candlesticks, signals, levels & Fibonacci",
             font=("Segoe UI", 11), fg=WIN11_TEXT_MUTED, bg=WIN11_CARD_BG,
             anchor="center",
         )
@@ -179,6 +201,16 @@ class ChartTab(ttk.Frame):
                 self.symbol_combo.current(0)
         except Exception:
             pass
+
+    # ── Presets ─────────────────────────────────────────────────────────
+
+    def _set_capital_preset(self, val: int):
+        self.calc_capital_var.set(str(val))
+        self._on_calc_risk(redraw=False)
+
+    def _set_risk_preset(self, val: float):
+        self.calc_risk_pct_var.set(val)
+        self._on_calc_risk(redraw=False)
 
     # ── Public method for cross-tab navigation ──────────────────────────
 
@@ -328,7 +360,7 @@ class ChartTab(ttk.Frame):
                     markersize=90, color="#d13438"
                 ))
 
-        # Horizontal Lines: Support/Resistance & Trade Targets
+        # Horizontal Lines: Support/Resistance, Fibonacci & Trade Targets
         hlines_list = []
         colors_list = []
         styles_list = []
@@ -345,6 +377,22 @@ class ChartTab(ttk.Frame):
                 hlines_list.append(r1)
                 colors_list.append("#e11d48")
                 styles_list.append(":")
+
+        # Fibonacci Retracement levels
+        if self.show_fib_var.get() and confluence:
+            fib = confluence.get("fibonacci", {})
+            fib_map = [
+                ("fib_236", "#ec4899", "Fib 23.6%"),
+                ("fib_382", "#8b5cf6", "Fib 38.2%"),
+                ("fib_500", "#3b82f6", "Fib 50.0%"),
+                ("fib_618", "#10b981", "Fib 61.8%"),
+            ]
+            for key, col, lbl in fib_map:
+                val = fib.get(key, 0)
+                if val > 0:
+                    hlines_list.append(val)
+                    colors_list.append(col)
+                    styles_list.append("-.")
 
         # Trade target lines
         if self.show_targets_var.get() and self._last_calc:
@@ -391,9 +439,15 @@ class ChartTab(ttk.Frame):
 
         fig, axes = mpf.plot(ohlcv, **plot_kwargs)
 
-        # Title subtitle with Grade
-        grade_text = f"Grade: {confluence.get('grade', '')} {confluence.get('stars', '')} | Score: {confluence.get('score', 0)}/100 | Vol: {confluence.get('vol_ratio_str', '')}"
-        fig.suptitle(f"{symbol}  —  {grade_text}", fontsize=11, fontweight="bold", color="#0f172a", y=0.98)
+        # Title subtitle with Grade (clean ASCII text to prevent DejaVu Sans glyph warnings)
+        grade = confluence.get("grade", "A")
+        stars = confluence.get("stars", "★★★★")
+        score = confluence.get("score", 0)
+        vol = confluence.get("vol_ratio_str", "1.0x")
+        weekly = confluence.get("weekly_trend", "Bullish")
+        div = confluence.get("divergence", "—")
+        grade_text = f"Grade: {grade} {stars} | Score: {score}/100 | Vol: {vol} | Weekly: {weekly} | Div: {div}"
+        fig.suptitle(f"{symbol}  —  {grade_text}", fontsize=10, fontweight="bold", color="#0f172a", y=0.98)
 
         # Embed in tkinter
         self._canvas = FigureCanvasTkAgg(fig, master=self.chart_frame)
@@ -405,7 +459,7 @@ class ChartTab(ttk.Frame):
         self._toolbar.update()
 
         self.app.stop_progress()
-        self.app.set_status(f"Chart loaded: {symbol} ({len(ohlcv)} bars) | Confluence Score: {confluence.get('score', 0)}")
+        self.app.set_status(f"Chart loaded: {symbol} ({len(ohlcv)} bars) | Confluence: {score}/100 | Weekly: {weekly}")
         plt.close(fig)
 
     # ── Risk Calculator Logic ───────────────────────────────────────────
@@ -432,6 +486,11 @@ class ChartTab(ttk.Frame):
             self.lbl_t1.config(text=f"T1 (1:1.5): {res['target1']:.2f} (+{res['net_profit_t1']:,.2f} net)")
             self.lbl_t2.config(text=f"T2 (1:2.5): {res['target2']:.2f} (+{res['net_profit_t2']:,.2f} net)")
             self.lbl_loss.config(text=f"Max Loss: -{res['net_loss_sl']:,.2f} LKR")
+
+            if self._current_data and "confluence" in self._current_data:
+                ts = self._current_data["confluence"].get("trailing_stop", 0)
+                if ts > 0:
+                    self.lbl_trail.config(text=f"ATR Trail: {ts:.2f} LKR")
 
             if redraw and self._current_data:
                 self._render_chart(self._current_data)
