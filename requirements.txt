@@ -1,0 +1,10 @@
+sv-ttk
+pywinstyles
+darkdetect
+matplotlib
+mplfinance
+pandas
+numpy
+requests
+python-dotenv
+markdown2

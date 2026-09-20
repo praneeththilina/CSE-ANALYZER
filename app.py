@@ -1,0 +1,89 @@
+# app.py  –  Main Application Window (Fast & Native Responsive)
+"""
+Creates the root ttk.Notebook with all 7 tabs, persistent status bar,
+and on-demand lazy tab loading for instantaneous native responsiveness.
+"""
+from __future__ import annotations
+
+import tkinter as tk
+from tkinter import ttk
+
+from core.data_engine import DataEngine
+from ui_utils import StatusBar
+
+from views.dashboard import DashboardTab
+from views.scanner import ScannerTab
+from views.chart import ChartTab
+from views.portfolio import PortfolioTab
+from views.backtest import BacktestTab
+from views.ai_analysis import AIAnalysisTab
+from views.settings import SettingsTab
+
+
+class MainApp(ttk.Frame):
+    """Top-level application frame containing the tab notebook + status bar."""
+
+    def __init__(self, root: tk.Tk):
+        super().__init__(root)
+        self.root = root
+        self.engine = DataEngine()
+        self._loaded_tabs: set[ttk.Frame] = set()
+
+        # ── Notebook (tabs) ─────────────────────────────────────────────
+        self.notebook = ttk.Notebook(self)
+        self.notebook.pack(fill="both", expand=True, padx=4, pady=(4, 0))
+
+        # Create each tab
+        self.dashboard = DashboardTab(self.notebook, self)
+        self.scanner = ScannerTab(self.notebook, self)
+        self.chart = ChartTab(self.notebook, self)
+        self.portfolio = PortfolioTab(self.notebook, self)
+        self.backtest = BacktestTab(self.notebook, self)
+        self.ai_analysis = AIAnalysisTab(self.notebook, self)
+        self.settings = SettingsTab(self.notebook, self)
+
+        self.notebook.add(self.dashboard, text="  📊 Dashboard  ")
+        self.notebook.add(self.scanner, text="  🔍 QQE Scanner  ")
+        self.notebook.add(self.chart, text="  📈 Charts  ")
+        self.notebook.add(self.portfolio, text="  💼 Portfolio  ")
+        self.notebook.add(self.backtest, text="  ⚡ Backtest  ")
+        self.notebook.add(self.ai_analysis, text="  🤖 AI Analysis  ")
+        self.notebook.add(self.settings, text="  ⚙ Settings  ")
+
+        # Bind lazy loading on tab switch
+        self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
+
+        # ── Status Bar ──────────────────────────────────────────────────
+        self.status_bar = StatusBar(self)
+        self.status_bar.pack(fill="x", side="bottom")
+
+        # ── Dashboard immediate load ────────────────────────────────────
+        self._loaded_tabs.add(self.dashboard)
+        self.dashboard.load_data()
+
+    def _on_tab_changed(self, event=None):
+        try:
+            sel = self.notebook.select()
+            if not sel:
+                return
+            current_widget = self.notebook.nametowidget(sel)
+            if current_widget not in self._loaded_tabs:
+                self._loaded_tabs.add(current_widget)
+                if hasattr(current_widget, "on_tab_shown"):
+                    current_widget.on_tab_shown()
+        except Exception:
+            pass
+
+    def switch_to_chart(self, symbol: str):
+        """Switch to the Charts tab and load a specific symbol."""
+        self.notebook.select(self.chart)
+        self.chart.load_symbol(symbol)
+
+    def set_status(self, message: str):
+        self.status_bar.set_message(message)
+
+    def start_progress(self):
+        self.status_bar.start_progress()
+
+    def stop_progress(self):
+        self.status_bar.stop_progress()
