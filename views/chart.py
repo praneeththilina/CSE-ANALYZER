@@ -34,7 +34,7 @@ import mplfinance as mpf
 
 class ChartTab(ttk.Frame):
     def __init__(self, parent, app: MainApp):
-        super().__init__(parent, padding=(16, 12))
+        super().__init__(parent, padding=(4, 2))
         self.app = app
         self._current_symbol = ""
         self._current_data: dict | None = None
@@ -43,69 +43,71 @@ class ChartTab(ttk.Frame):
         self._build_ui()
 
     def _build_ui(self):
-        # ── Controls Colorful Form Card ─────────────────────────────────
-        self.ctrl_card = FormCard(
-            self,
-            title="Chart Display & Technical Overlays",
-            accent_color="#0067c0",
-            bg_color="#f0f7ff",
-            border_color="#93c5fd",
-            icon="📈",
-        )
-        self.ctrl_card.pack(fill="x", pady=(0, 8))
+        # ── TradingView-Style Sleek Top Toolbar (1 compact row) ─────────
+        self.tv_toolbar = tk.Frame(self, bg="#ffffff", highlightbackground="#cbd5e1",
+                                   highlightthickness=1, bd=0, padx=8, pady=4)
+        self.tv_toolbar.pack(fill="x", pady=(0, 4))
 
-        ctrl = tk.Frame(self.ctrl_card.body, bg="#f0f7ff")
-        ctrl.pack(fill="x")
-
-        tk.Label(ctrl, text="Symbol:", font=("Segoe UI Semibold", 9), bg="#f0f7ff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 6))
+        # 1. Symbol Search & Load
+        tk.Label(self.tv_toolbar, text="Symbol:", font=("Segoe UI Semibold", 9), bg="#ffffff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
 
         self.symbol_var = tk.StringVar()
-        self.symbol_combo = ttk.Combobox(ctrl, textvariable=self.symbol_var, width=15, font=("Segoe UI", 9))
-        self.symbol_combo.pack(side="left", padx=(0, 8))
+        self.symbol_combo = ttk.Combobox(self.tv_toolbar, textvariable=self.symbol_var, width=13, font=("Segoe UI", 9))
+        self.symbol_combo.pack(side="left", padx=(0, 4))
         self.symbol_combo.bind("<<ComboboxSelected>>", lambda e: self._on_load())
         self.symbol_combo.bind("<Return>", lambda e: self._on_load())
 
-        ttk.Button(ctrl, text="📈 Load Chart", style="Accent.TButton", command=self._on_load).pack(side="left", padx=4)
+        ttk.Button(self.tv_toolbar, text="📈 Load", style="Accent.TButton", command=self._on_load).pack(side="left", padx=(0, 6))
 
-        # Period selector
-        ttk.Separator(ctrl, orient="vertical").pack(side="left", fill="y", padx=8)
-        tk.Label(ctrl, text="Period:", font=("Segoe UI Semibold", 9), bg="#f0f7ff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
+        # 2. Timeframe Selector
+        ttk.Separator(self.tv_toolbar, orient="vertical").pack(side="left", fill="y", padx=6)
         self.period_var = tk.StringVar(value="1Y")
         for p in ["1M", "3M", "6M", "1Y", "All"]:
-            ttk.Radiobutton(ctrl, text=p, variable=self.period_var, value=p,
-                            command=self._on_load).pack(side="left", padx=2)
+            ttk.Radiobutton(self.tv_toolbar, text=p, variable=self.period_var, value=p,
+                            command=self._on_load).pack(side="left", padx=1)
 
-        # Indicator toggles
-        ttk.Separator(ctrl, orient="vertical").pack(side="left", fill="y", padx=8)
+        # 3. Technical Overlays
+        ttk.Separator(self.tv_toolbar, orient="vertical").pack(side="left", fill="y", padx=6)
         self.show_ma_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(ctrl, text="EMA 50/200", variable=self.show_ma_var,
+        ttk.Checkbutton(self.tv_toolbar, text="EMA 50/200", variable=self.show_ma_var,
                         command=self._on_load).pack(side="left", padx=3)
 
         self.show_signals_var = tk.BooleanVar(value=True)
         self.show_qqe_var = self.show_signals_var  # alias
-        ttk.Checkbutton(ctrl, text="BUY/EXIT Signals", variable=self.show_signals_var,
+        ttk.Checkbutton(self.tv_toolbar, text="BUY/EXIT Signals", variable=self.show_signals_var,
                         command=self._on_load).pack(side="left", padx=3)
 
         self.show_sr_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(ctrl, text="Support/Resistance", variable=self.show_sr_var,
+        ttk.Checkbutton(self.tv_toolbar, text="S/R", variable=self.show_sr_var,
                         command=self._on_toggle_levels).pack(side="left", padx=3)
 
         self.show_fib_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(ctrl, text="Fibonacci", variable=self.show_fib_var,
+        ttk.Checkbutton(self.tv_toolbar, text="Fibonacci", variable=self.show_fib_var,
                         command=self._on_toggle_levels).pack(side="left", padx=3)
 
         self.show_targets_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(ctrl, text="Trade Targets", variable=self.show_targets_var,
+        ttk.Checkbutton(self.tv_toolbar, text="Targets", variable=self.show_targets_var,
                         command=self._on_toggle_levels).pack(side="left", padx=3)
 
-        self.show_profile_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(ctrl, text="CSE Profile", variable=self.show_profile_var,
-                        command=self._on_toggle_profile).pack(side="left", padx=3)
+        # 4. Right Side Actions & Drawer Toggles
+        ttk.Button(self.tv_toolbar, text="⭐ + Watchlist", command=self._add_to_watchlist_dialog,
+                   style="Accent.TButton").pack(side="right", padx=(4, 0))
 
-        ttk.Button(ctrl, text="⭐ + Watchlist", command=self._add_to_watchlist_dialog,
-                   style="Accent.TButton").pack(side="right", padx=4)
+        self.show_profile_var = tk.BooleanVar(value=False)
+        self.btn_profile = tk.Button(self.tv_toolbar, text="🏛️ Profile ▾", font=("Segoe UI", 8, "bold"),
+                                     bg="#eef2ff", fg="#3730a3", activebackground="#c7d2fe",
+                                     bd=1, relief="solid", cursor="hand2", padx=8, pady=2,
+                                     command=self._toggle_profile)
+        self.btn_profile.pack(side="right", padx=3)
 
-        # ── Smart Risk & Position Size Calculator FormCard ─────────────
+        self.show_risk_var = tk.BooleanVar(value=False)
+        self.btn_risk = tk.Button(self.tv_toolbar, text="⚖️ Risk Calc ▾", font=("Segoe UI", 8, "bold"),
+                                  bg="#f0fdf4", fg="#065f46", activebackground="#86efac",
+                                  bd=1, relief="solid", cursor="hand2", padx=8, pady=2,
+                                  command=self._toggle_risk_calc)
+        self.btn_risk.pack(side="right", padx=3)
+
+        # ── Smart Risk & Position Size Calculator FormCard (Collapsible Drawer) ──
         self.risk_card = FormCard(
             self,
             title="Smart Risk & Position Size Calculator (CSE LKR + Fees)",
@@ -114,7 +116,6 @@ class ChartTab(ttk.Frame):
             border_color="#86efac",
             icon="⚖️",
         )
-        self.risk_card.pack(fill="x", pady=(0, 8))
 
         # Inputs Row
         calc_row = tk.Frame(self.risk_card.body, bg="#f0fdf4")
@@ -183,7 +184,7 @@ class ChartTab(ttk.Frame):
         self.lbl_loss = tk.Label(metric_row, text="Max Loss: —", font=FONT_BODY_BOLD, bg="#f0fdf4", fg="#c42b1c")
         self.lbl_loss.pack(side="left", padx=(0, 8))
 
-        # ── Official CSE Company Profile & Leadership FormCard ────────
+        # ── Official CSE Company Profile & Leadership FormCard (Collapsible) ─
         self.profile_card = FormCard(
             self,
             title="Official CSE Company Profile & Leadership",
@@ -192,7 +193,7 @@ class ChartTab(ttk.Frame):
             border_color="#c7d2fe",
             icon="🏛️",
         )
-        self.profile_card.pack(fill="x", pady=(0, 8))
+        # Note: self.profile_card is NOT packed by default; toggled via self.btn_profile
 
         p_row1 = tk.Frame(self.profile_card.body, bg="#eef2ff")
         p_row1.pack(fill="x", pady=(0, 2))
@@ -528,9 +529,9 @@ class ChartTab(ttk.Frame):
             "style": style,
             "volume": True,
             "title": f"\n{symbol}",
-            "figsize": (12, 7),
+            "figsize": (16, 9),
             "returnfig": True,
-            "panel_ratios": (4, 1),
+            "panel_ratios": (5, 1),
         }
         if addplots:
             plot_kwargs["addplot"] = addplots
@@ -543,6 +544,10 @@ class ChartTab(ttk.Frame):
             )
 
         fig, axes = mpf.plot(ohlcv, **plot_kwargs)
+        try:
+            fig.subplots_adjust(left=0.035, right=0.975, top=0.94, bottom=0.05, hspace=0.06)
+        except Exception:
+            pass
 
         # Title subtitle with Grade & Breakout & Pattern
         grade = confluence.get("grade", "A")
@@ -649,12 +654,28 @@ class ChartTab(ttk.Frame):
         except Exception as e:
             self.app.set_status(f"Error transferring to portfolio: {e}")
 
-    def _on_toggle_profile(self):
-        """Show or hide the Official CSE Company Profile & Leadership card."""
-        if self.show_profile_var.get():
-            self.profile_card.pack(fill="x", pady=(0, 8), before=self.chart_frame)
+    def _toggle_risk_calc(self):
+        new_state = not self.show_risk_var.get()
+        self.show_risk_var.set(new_state)
+        if new_state:
+            self.risk_card.pack(fill="x", pady=(0, 4), before=self.chart_frame)
+            self.btn_risk.config(bg="#059669", fg="#ffffff", text="⚖️ Risk Calc ▴")
+        else:
+            self.risk_card.pack_forget()
+            self.btn_risk.config(bg="#f0fdf4", fg="#065f46", text="⚖️ Risk Calc ▾")
+
+    def _toggle_profile(self):
+        new_state = not self.show_profile_var.get()
+        self.show_profile_var.set(new_state)
+        if new_state:
+            self.profile_card.pack(fill="x", pady=(0, 4), before=self.chart_frame)
+            self.btn_profile.config(bg="#4f46e5", fg="#ffffff", text="🏛️ Profile ▴")
         else:
             self.profile_card.pack_forget()
+            self.btn_profile.config(bg="#eef2ff", fg="#3730a3", text="🏛️ Profile ▾")
+
+    def _on_toggle_profile(self):
+        self._toggle_profile()
 
     def _add_to_watchlist_dialog(self):
         """Displays dialog allowing user to add currently loaded stock to any watchlist."""
