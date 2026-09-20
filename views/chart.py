@@ -7,7 +7,7 @@ Position Size Calculator tailored for the CSE (LKR + fees + presets + steppers +
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 from typing import TYPE_CHECKING, Any, Dict
 
 import numpy as np
@@ -17,7 +17,7 @@ from ui_utils import (
     ThreadedTask, FormCard,
     WIN11_BG, WIN11_CARD_BG, WIN11_TEXT_MAIN, WIN11_TEXT_MUTED,
     WIN11_GREEN, WIN11_RED, WIN11_BORDER,
-    FONT_TITLE, FONT_BODY, FONT_BODY_BOLD
+    FONT_TITLE, FONT_SECTION, FONT_BODY, FONT_BODY_BOLD
 )
 
 if TYPE_CHECKING:
@@ -98,6 +98,13 @@ class ChartTab(ttk.Frame):
         ttk.Checkbutton(ctrl, text="Trade Targets", variable=self.show_targets_var,
                         command=self._on_toggle_levels).pack(side="left", padx=3)
 
+        self.show_profile_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(ctrl, text="CSE Profile", variable=self.show_profile_var,
+                        command=self._on_toggle_profile).pack(side="left", padx=3)
+
+        ttk.Button(ctrl, text="⭐ + Watchlist", command=self._add_to_watchlist_dialog,
+                   style="Accent.TButton").pack(side="right", padx=4)
+
         # ── Smart Risk & Position Size Calculator FormCard ─────────────
         self.risk_card = FormCard(
             self,
@@ -175,6 +182,44 @@ class ChartTab(ttk.Frame):
 
         self.lbl_loss = tk.Label(metric_row, text="Max Loss: —", font=FONT_BODY_BOLD, bg="#f0fdf4", fg="#c42b1c")
         self.lbl_loss.pack(side="left", padx=(0, 8))
+
+        # ── Official CSE Company Profile & Leadership FormCard ────────
+        self.profile_card = FormCard(
+            self,
+            title="Official CSE Company Profile & Leadership",
+            accent_color="#4f46e5",
+            bg_color="#eef2ff",
+            border_color="#c7d2fe",
+            icon="🏛️",
+        )
+        self.profile_card.pack(fill="x", pady=(0, 8))
+
+        p_row1 = tk.Frame(self.profile_card.body, bg="#eef2ff")
+        p_row1.pack(fill="x", pady=(0, 2))
+
+        self.lbl_prof_name = tk.Label(p_row1, text="Company: —", font=FONT_BODY_BOLD, bg="#eef2ff", fg="#3730a3")
+        self.lbl_prof_name.pack(side="left", padx=(0, 16))
+
+        self.lbl_prof_sector = tk.Label(p_row1, text="Sector: —", font=FONT_BODY, bg="#eef2ff", fg=WIN11_TEXT_MAIN)
+        self.lbl_prof_sector.pack(side="left", padx=(0, 16))
+
+        self.lbl_prof_board = tk.Label(p_row1, text="Board: —", font=FONT_BODY, bg="#eef2ff", fg=WIN11_TEXT_MAIN)
+        self.lbl_prof_board.pack(side="left", padx=(0, 16))
+
+        self.lbl_prof_auditors = tk.Label(p_row1, text="Auditors: —", font=FONT_BODY, bg="#eef2ff", fg=WIN11_TEXT_MUTED)
+        self.lbl_prof_auditors.pack(side="left", padx=(0, 16))
+
+        self.lbl_prof_web = tk.Label(p_row1, text="Web: —", font=FONT_BODY, bg="#eef2ff", fg="#2563eb")
+        self.lbl_prof_web.pack(side="left")
+
+        p_row2 = tk.Frame(self.profile_card.body, bg="#eef2ff")
+        p_row2.pack(fill="x", pady=(2, 0))
+
+        self.lbl_prof_leadership = tk.Label(p_row2, text="Key Leadership: —", font=FONT_BODY_BOLD, bg="#eef2ff", fg="#1e1b4b")
+        self.lbl_prof_leadership.pack(side="left", padx=(0, 16))
+
+        self.lbl_prof_summary = tk.Label(p_row2, text="Business: —", font=FONT_BODY, bg="#eef2ff", fg=WIN11_TEXT_MUTED)
+        self.lbl_prof_summary.pack(side="left", fill="x", expand=True)
 
         # ── Chart Canvas Area ───────────────────────────────────────────
         self.chart_frame = tk.Frame(self, bg=WIN11_CARD_BG, highlightbackground="#cbd5e1",
@@ -306,6 +351,13 @@ class ChartTab(ttk.Frame):
             except Exception:
                 pass
 
+        # Fetch official CSE company profile (cached)
+        try:
+            profile = self.app.engine.get_formatted_company_profile(symbol)
+        except Exception:
+            profile = {}
+        result["profile"] = profile
+
         return result
 
     def _render_chart(self, data: dict):
@@ -313,6 +365,24 @@ class ChartTab(ttk.Frame):
         df = data["df"]
         symbol = data["symbol"]
         confluence = data.get("confluence", {})
+
+        # Update Official CSE Company Profile Card
+        profile = data.get("profile", {})
+        if profile:
+            self.lbl_prof_name.config(text=f"Company: {profile.get('name', symbol)}")
+            self.lbl_prof_sector.config(text=f"Sector: {profile.get('sector', '—')}")
+            self.lbl_prof_board.config(text=f"Board: {profile.get('board_type', '—')} ({profile.get('established', '—')})")
+            self.lbl_prof_auditors.config(text=f"Auditors: {profile.get('auditors', '—')}")
+            self.lbl_prof_web.config(text=f"🌐 {profile.get('web', '—')}")
+
+            leads = profile.get("leadership", [])
+            lead_str = " | ".join([f"{l.get('designation')}: {l.get('name')}" for l in leads[:2]]) if leads else "—"
+            self.lbl_prof_leadership.config(text=f"Leadership: {lead_str}")
+
+            b_sum = profile.get("business_summary", "")
+            if len(b_sum) > 130:
+                b_sum = b_sum[:127] + "…"
+            self.lbl_prof_summary.config(text=f"Business: {b_sum}")
 
         # Auto-fill calculator if empty
         last_price = float(df["close"].iloc[-1])
@@ -576,6 +646,83 @@ class ChartTab(ttk.Frame):
             self.app.set_status(f"Pre-filled Portfolio trade for {symbol} ({shares:,} @ {price:.2f})")
         except Exception as e:
             self.app.set_status(f"Error transferring to portfolio: {e}")
+
+    def _on_toggle_profile(self):
+        """Show or hide the Official CSE Company Profile & Leadership card."""
+        if self.show_profile_var.get():
+            self.profile_card.pack(fill="x", pady=(0, 8), before=self.chart_frame)
+        else:
+            self.profile_card.pack_forget()
+
+    def _add_to_watchlist_dialog(self):
+        """Displays dialog allowing user to add currently loaded stock to any watchlist."""
+        symbol = self._current_symbol or self.symbol_var.get().strip().upper()
+        if not symbol:
+            messagebox.showinfo("Watchlist", "Please load a symbol on the chart first.", parent=self)
+            return
+
+        stop_val = self.calc_stop_var.get().strip()
+
+        dlg = tk.Toplevel(self)
+        dlg.title(f"Add {symbol} to Watchlist")
+        dlg.geometry("400x290")
+        dlg.resizable(False, False)
+        dlg.configure(bg=WIN11_BG)
+        dlg.transient(self)
+        dlg.grab_set()
+
+        pad = tk.Frame(dlg, bg=WIN11_BG, padx=18, pady=16)
+        pad.pack(fill="both", expand=True)
+
+        tk.Label(pad, text=f"⭐ Add {symbol} to Watchlist", font=FONT_SECTION, bg=WIN11_BG, fg=WIN11_TEXT_MAIN).pack(anchor="w", pady=(0, 12))
+
+        f_grid = tk.Frame(pad, bg=WIN11_BG)
+        f_grid.pack(fill="x", pady=(0, 12))
+
+        tk.Label(f_grid, text="Watchlist:", font=FONT_BODY, bg=WIN11_BG).grid(row=0, column=0, sticky="w", pady=4)
+        names = self.app.engine.get_watchlist_names()
+        list_var = tk.StringVar(value=names[0] if names else "⭐ Blue Chips")
+        list_cb = ttk.Combobox(f_grid, textvariable=list_var, values=names, width=22)
+        list_cb.grid(row=0, column=1, sticky="w", padx=8, pady=4)
+
+        tk.Label(f_grid, text="Alert High (≥):", font=FONT_BODY, bg=WIN11_BG).grid(row=1, column=0, sticky="w", pady=4)
+        t1_val = ""
+        if self._last_calc and self._last_calc.get("target1"):
+            t1_val = str(self._last_calc["target1"])
+        ah_var = tk.StringVar(value=t1_val)
+        ttk.Entry(f_grid, textvariable=ah_var, width=15).grid(row=1, column=1, sticky="w", padx=8, pady=4)
+
+        tk.Label(f_grid, text="Alert Low (≤):", font=FONT_BODY, bg=WIN11_BG).grid(row=2, column=0, sticky="w", pady=4)
+        al_var = tk.StringVar(value=stop_val)
+        ttk.Entry(f_grid, textvariable=al_var, width=15).grid(row=2, column=1, sticky="w", padx=8, pady=4)
+
+        tk.Label(f_grid, text="Notes / Strategy:", font=FONT_BODY, bg=WIN11_BG).grid(row=3, column=0, sticky="w", pady=4)
+        notes_var = tk.StringVar(value="Chart technical setup")
+        ttk.Entry(f_grid, textvariable=notes_var, width=22).grid(row=3, column=1, sticky="w", padx=8, pady=4)
+
+        def _save():
+            lname = list_var.get().strip()
+            if not lname:
+                messagebox.showwarning("Watchlist", "Please enter a watchlist name.", parent=dlg)
+                return
+            try:
+                ah = float(ah_var.get().strip()) if ah_var.get().strip() else 0.0
+            except ValueError:
+                ah = 0.0
+            try:
+                al = float(al_var.get().strip()) if al_var.get().strip() else 0.0
+            except ValueError:
+                al = 0.0
+
+            self.app.engine.add_to_watchlist(lname, symbol, alert_high=ah, alert_low=al, notes=notes_var.get().strip())
+            self.app.set_status(f"Added {symbol} to watchlist '{lname}'")
+            dlg.destroy()
+            messagebox.showinfo("Saved", f"Successfully added {symbol} to '{lname}'!", parent=self)
+
+        btn_row = tk.Frame(pad, bg=WIN11_BG)
+        btn_row.pack(fill="x", side="bottom")
+        ttk.Button(btn_row, text="Cancel", command=dlg.destroy).pack(side="right", padx=4)
+        ttk.Button(btn_row, text="💾 Save to Watchlist", command=_save, style="Accent.TButton").pack(side="right", padx=4)
 
     def _on_error(self, exc: Exception):
         self.app.stop_progress()

@@ -7,7 +7,7 @@ threads via ThreadedTask (see ui_utils.py).
 from __future__ import annotations
 
 import sqlite3
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -29,6 +29,8 @@ class DataEngine:
         self.db_path = str(db_path)
         self._session = stocks.mk_session(timeout=40)
         self._symbol_cache: list[str] | None = None
+        self._company_profile_cache: dict[str, dict] = {}
+        self._init_watchlist_table()
 
     # ── Connection helpers ──────────────────────────────────────────────
 
@@ -1006,3 +1008,331 @@ class DataEngine:
             return df, summary
         finally:
             con.close()
+
+    # ── Watchlists & Price Alerts ───────────────────────────────────────
+
+    def _init_watchlist_table(self):
+        """Initializes the watchlists SQLite table and seeds default watchlists if empty."""
+        con = self.connect()
+        try:
+            con.execute("""
+                CREATE TABLE IF NOT EXISTS watchlists (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    list_name   TEXT NOT NULL,
+                    symbol      TEXT NOT NULL,
+                    alert_high  REAL DEFAULT 0,
+                    alert_low   REAL DEFAULT 0,
+                    notes       TEXT DEFAULT '',
+                    created_at  TEXT DEFAULT (datetime('now')),
+                    UNIQUE(list_name, symbol)
+                );
+            """)
+            con.execute("CREATE INDEX IF NOT EXISTS idx_watchlists_list ON watchlists(list_name);")
+
+            # Check if default watchlists should be seeded
+            count = con.execute("SELECT COUNT(*) FROM watchlists").fetchone()[0]
+            if count == 0:
+                defaults = [
+                    ("⭐ Blue Chips", "COMB.N0000", 125.0, 95.0, "Tier-1 Commercial Bank"),
+                    ("⭐ Blue Chips", "JKH.N0000", 24.0, 18.0, "Conglomerate market leader"),
+                    ("⭐ Blue Chips", "HNB.N0000", 220.0, 175.0, "Strong banking franchise"),
+                    ("⭐ Blue Chips", "SAMP.N0000", 95.0, 75.0, "High ROE private bank"),
+                    ("⚡ High Momentum", "HAYL.N0000", 120.0, 95.0, "Export & manufacturing leader"),
+                    ("⚡ High Momentum", "DIPD.N0000", 42.0, 32.0, "Gloves & rubber export play"),
+                    ("⚡ High Momentum", "CALT.N0000", 75.0, 50.0, "Primary dealer / financial momentum"),
+                    ("🏦 Banking & Finance", "COMB.N0000", 125.0, 95.0, "Core banking position"),
+                    ("🏦 Banking & Finance", "HNB.N0000", 220.0, 175.0, "Top private lender"),
+                    ("🏦 Banking & Finance", "SAMP.N0000", 95.0, 75.0, "Solid credit growth"),
+                    ("🏦 Banking & Finance", "NTB.N0000", 145.0, 115.0, "High digital banking penetration"),
+                    ("💎 Dividend Aristocrats", "CTC.N0000", 1300.0, 1050.0, "Consistent dividend yield > 10%"),
+                    ("💎 Dividend Aristocrats", "CHEV.N0000", 140.0, 110.0, "Lubricants cash-cow"),
+                    ("💎 Dividend Aristocrats", "LLUB.N0000", 135.0, 105.0, "High payout ratio"),
+                ]
+                valid_syms = set(r[0] for r in con.execute("SELECT symbol FROM symbols").fetchall())
+                for lname, sym, a_high, a_low, notes in defaults:
+                    if not valid_syms or sym in valid_syms:
+                        con.execute(
+                            "INSERT OR IGNORE INTO watchlists (list_name, symbol, alert_high, alert_low, notes) "
+                            "VALUES (?, ?, ?, ?, ?)",
+                            (lname, sym, a_high, a_low, notes)
+                        )
+            con.commit()
+        finally:
+            con.close()
+
+    def get_watchlist_names(self) -> List[str]:
+        """Returns all distinct watchlist names."""
+        con = self.connect()
+        try:
+            rows = con.execute("SELECT DISTINCT list_name FROM watchlists ORDER BY list_name").fetchall()
+            names = [r[0] for r in rows]
+            if not names:
+                names = ["⭐ Blue Chips"]
+            return names
+        finally:
+            con.close()
+
+    def get_watchlist_items(self, list_name: str) -> List[Dict[str, Any]]:
+        """
+        Retrieves all items in a watchlist enriched with current price,
+        day change %, confluence grade, trend status, and price alert status.
+        """
+        con = self.connect()
+        try:
+            rows = con.execute(
+                "SELECT id, symbol, alert_high, alert_low, notes FROM watchlists "
+                "WHERE list_name=? ORDER BY symbol", (list_name,)
+            ).fetchall()
+            if not rows:
+                return []
+
+            ind_map = {r[0]: r[1] for r in con.execute("SELECT symbol, COALESCE(industry, '') FROM symbols").fetchall()}
+            items = []
+            for wid, sym, a_high, a_low, notes in rows:
+                bars_df = self.get_bars(sym)
+                c_last = 0.0
+                day_chg_pct = 0.0
+                confluence = {"grade": "—", "stars": "—", "trend_text": "—", "score": 0}
+                if not bars_df.empty and len(bars_df) >= 2:
+                    c_last = float(bars_df["close"].iloc[-1])
+                    c_prev = float(bars_df["close"].iloc[-2])
+                    if c_prev > 0:
+                        day_chg_pct = round(((c_last - c_prev) / c_prev) * 100.0, 2)
+                    confluence = self.compute_confluence(bars_df, signal=1 if c_last >= c_prev else -1)
+                elif not bars_df.empty:
+                    c_last = float(bars_df["close"].iloc[-1])
+
+                a_high_val = float(a_high or 0.0)
+                a_low_val = float(a_low or 0.0)
+
+                alert_status = "— Normal"
+                if a_high_val > 0 and c_last >= a_high_val:
+                    alert_status = f"🔔 High Hit (>= {a_high_val:.2f})"
+                elif a_low_val > 0 and c_last <= a_low_val:
+                    alert_status = f"⚠️ Low Hit (<= {a_low_val:.2f})"
+
+                items.append({
+                    "id": wid,
+                    "symbol": sym,
+                    "industry": ind_map.get(sym, "—"),
+                    "price": c_last,
+                    "day_chg_pct": day_chg_pct,
+                    "grade": confluence.get("grade", "—"),
+                    "stars": confluence.get("stars", "—"),
+                    "trend": confluence.get("trend_text", "—"),
+                    "score": confluence.get("score", 0),
+                    "alert_high": a_high_val,
+                    "alert_low": a_low_val,
+                    "alert_status": alert_status,
+                    "notes": notes or "",
+                })
+            return items
+        finally:
+            con.close()
+
+    def add_to_watchlist(
+        self,
+        list_name: str,
+        symbol: str,
+        alert_high: float = 0.0,
+        alert_low: float = 0.0,
+        notes: str = ""
+    ):
+        """Inserts or updates a symbol in the specified watchlist."""
+        con = self.connect()
+        try:
+            con.execute(
+                "INSERT INTO watchlists (list_name, symbol, alert_high, alert_low, notes) "
+                "VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT(list_name, symbol) DO UPDATE SET "
+                "alert_high=excluded.alert_high, alert_low=excluded.alert_low, notes=excluded.notes",
+                (list_name.strip(), symbol.strip().upper(), float(alert_high), float(alert_low), notes.strip())
+            )
+            con.commit()
+        finally:
+            con.close()
+
+    def remove_from_watchlist(self, list_name: str, symbol: str):
+        """Deletes a symbol from a specific watchlist."""
+        con = self.connect()
+        try:
+            con.execute("DELETE FROM watchlists WHERE list_name=? AND symbol=?", (list_name, symbol))
+            con.commit()
+        finally:
+            con.close()
+
+    def delete_watchlist(self, list_name: str):
+        """Deletes an entire watchlist and its items."""
+        con = self.connect()
+        try:
+            con.execute("DELETE FROM watchlists WHERE list_name=?", (list_name,))
+            con.commit()
+        finally:
+            con.close()
+
+    def check_watchlist_alerts(self, list_name: str | None = None) -> List[Dict[str, Any]]:
+        """
+        Scans watchlists and identifies all positions that breached alert_high or alert_low levels.
+        """
+        con = self.connect()
+        try:
+            query = "SELECT list_name, symbol, alert_high, alert_low, notes FROM watchlists"
+            params = ()
+            if list_name:
+                query += " WHERE list_name=?"
+                params = (list_name,)
+            rows = con.execute(query, params).fetchall()
+
+            alerts = []
+            for lname, sym, a_high, a_low, notes in rows:
+                a_high_val = float(a_high or 0.0)
+                a_low_val = float(a_low or 0.0)
+                if a_high_val <= 0 and a_low_val <= 0:
+                    continue
+                bars_df = self.get_bars(sym)
+                if bars_df.empty:
+                    continue
+                c_last = float(bars_df["close"].iloc[-1])
+                triggered_type = None
+                thresh = 0.0
+                if a_high_val > 0 and c_last >= a_high_val:
+                    triggered_type = "HIGH_BREAKOUT"
+                    thresh = a_high_val
+                elif a_low_val > 0 and c_last <= a_low_val:
+                    triggered_type = "LOW_SUPPORT_BREACH"
+                    thresh = a_low_val
+
+                if triggered_type:
+                    alerts.append({
+                        "list_name": lname,
+                        "symbol": sym,
+                        "current_price": c_last,
+                        "type": triggered_type,
+                        "threshold": thresh,
+                        "alert_high": a_high_val,
+                        "alert_low": a_low_val,
+                        "notes": notes or "",
+                    })
+            return alerts
+        finally:
+            con.close()
+
+    def send_watchlist_telegram_alerts(self, alerts: List[Dict[str, Any]]) -> str:
+        """Dispatches triggered price alerts to Telegram."""
+        if not alerts:
+            return "No triggered alerts to send."
+
+        lines = [
+            "🔔 *CSE WATCHLIST PRICE ALERT* 🔔",
+            f"📅 *Timestamp:* `{datetime.now().strftime('%Y-%m-%d %H:%M')}`",
+            "────────────────────────",
+        ]
+        for a in alerts:
+            sym = a["symbol"]
+            cur = a["current_price"]
+            atype = a["type"]
+            thresh = a["threshold"]
+            lname = a["list_name"]
+
+            if atype == "HIGH_BREAKOUT":
+                icon = "🚀"
+                desc = f"Hit target level *>= {thresh:.2f} LKR*"
+            else:
+                icon = "⚠️"
+                desc = f"Breached support level *<= {thresh:.2f} LKR*"
+
+            lines.append(f"{icon} *{sym}* in [{lname}]")
+            lines.append(f"• *Current Price:* `{cur:.2f} LKR`")
+            lines.append(f"• *Trigger:* {desc}")
+            if a.get("notes"):
+                lines.append(f"• *Note:* _{a['notes']}_")
+            lines.append("────────────────────────")
+
+        lines.append("⚠️ _CSE Analyzer Watchlist Alert • Verify before executing_")
+        text = "\n".join(lines)
+        stocks.send_telegram_message(text, force=True)
+        return f"Successfully sent {len(alerts)} alerts to Telegram!"
+
+    # ── Official CSE Company Profile ────────────────────────────────────
+
+    def get_formatted_company_profile(self, symbol: str) -> Dict[str, Any]:
+        """
+        Fetches official CSE company profile, board directors, top executive posts,
+        and business summary from CSE API with caching.
+        """
+        clean_sym = symbol.split(".")[0].strip().upper()
+        if clean_sym in self._company_profile_cache:
+            return self._company_profile_cache[clean_sym]
+
+        try:
+            data = stocks.api_company_profile(self.session, clean_sym)
+        except Exception as e:
+            return {
+                "symbol": clean_sym,
+                "name": clean_sym,
+                "sector": "—",
+                "board_type": "—",
+                "established": "—",
+                "auditors": "—",
+                "web": "—",
+                "email": "—",
+                "tel": "—",
+                "registered_office": "—",
+                "business_summary": "Profile information currently unavailable.",
+                "leadership": [],
+                "directors": [],
+                "error": str(e),
+            }
+
+        # Parse reqComSumInfo
+        sum_info = data.get("reqComSumInfo") or [{}]
+        first_sum = sum_info[0] if isinstance(sum_info, list) and sum_info else {}
+
+        # Parse topPosts (Executive Leadership)
+        top_posts = data.get("topPosts") or []
+        leadership = []
+        if isinstance(top_posts, list):
+            for post in top_posts:
+                name = f"{post.get('firstName', '')} {post.get('lastName', '')}".strip()
+                desig = post.get("designationOther", "").strip()
+                if name or desig:
+                    leadership.append({"name": name, "designation": desig})
+
+        # Parse infoCompanyDirector
+        directors_raw = data.get("infoCompanyDirector") or []
+        directors = []
+        if isinstance(directors_raw, list):
+            for d in directors_raw:
+                dname = f"{d.get('firstName', '')} {d.get('lastName', '')}".strip()
+                dcat = d.get("category", "") or d.get("directorType", "")
+                if dname:
+                    directors.append({"name": dname, "category": dcat})
+
+        # Parse business summary
+        biz_list = data.get("infoCompanyBusinessSummary") or []
+        biz_summary = ""
+        if isinstance(biz_list, list) and biz_list:
+            bodies = [b.get("body", "").strip() for b in biz_list if b.get("body")]
+            biz_summary = " ".join(bodies)
+        if not biz_summary:
+            biz_summary = "Official business summary registered with Colombo Stock Exchange."
+
+        profile = {
+            "symbol": clean_sym,
+            "name": first_sum.get("name", clean_sym),
+            "sector": first_sum.get("sector", "—"),
+            "board_type": first_sum.get("boardType", "Main Board"),
+            "established": first_sum.get("established", "—"),
+            "auditors": first_sum.get("auditors", "—"),
+            "web": first_sum.get("web", "—"),
+            "email": first_sum.get("email1", "—"),
+            "tel": first_sum.get("tel1", "—"),
+            "registered_office": first_sum.get("registeredOffice", "—"),
+            "business_summary": biz_summary,
+            "leadership": leadership,
+            "directors": directors,
+        }
+
+        self._company_profile_cache[clean_sym] = profile
+        return profile
+

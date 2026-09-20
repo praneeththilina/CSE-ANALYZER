@@ -14,6 +14,7 @@ from ui_utils import StatusBar
 from views.dashboard import DashboardTab
 from views.scanner import ScannerTab
 from views.chart import ChartTab
+from views.watchlist import WatchlistTab
 from views.portfolio import PortfolioTab
 from views.backtest import BacktestTab
 from views.ai_analysis import AIAnalysisTab
@@ -37,6 +38,7 @@ class MainApp(ttk.Frame):
         self.dashboard = DashboardTab(self.notebook, self)
         self.scanner = ScannerTab(self.notebook, self)
         self.chart = ChartTab(self.notebook, self)
+        self.watchlist = WatchlistTab(self.notebook, self)
         self.portfolio = PortfolioTab(self.notebook, self)
         self.backtest = BacktestTab(self.notebook, self)
         self.ai_analysis = AIAnalysisTab(self.notebook, self)
@@ -45,6 +47,7 @@ class MainApp(ttk.Frame):
         self.notebook.add(self.dashboard, text="  📊 Dashboard  ")
         self.notebook.add(self.scanner, text="  🔍 QQE Scanner  ")
         self.notebook.add(self.chart, text="  📈 Charts  ")
+        self.notebook.add(self.watchlist, text="  ⭐ Watchlist  ")
         self.notebook.add(self.portfolio, text="  💼 Portfolio  ")
         self.notebook.add(self.backtest, text="  ⚡ Backtest  ")
         self.notebook.add(self.ai_analysis, text="  🤖 AI Analysis  ")
@@ -83,6 +86,12 @@ class MainApp(ttk.Frame):
         """Switch to Portfolio tab and pre-fill trade details."""
         self.notebook.select(self.portfolio)
         self.portfolio.prefill(symbol, price, qty)
+
+    def switch_to_watchlist(self, symbol: str | None = None):
+        """Switch to Watchlist tab and optionally select/prefill a symbol."""
+        self.notebook.select(self.watchlist)
+        if symbol:
+            self.watchlist.sym_var.set(symbol)
 
     def set_status(self, message: str):
         self.status_bar.set_message(message)
