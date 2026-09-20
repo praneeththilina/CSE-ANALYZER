@@ -17,9 +17,9 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
 from ui_utils import (
-    InfoCard, SortableTreeview, ThreadedTask,
+    InfoCard, FormCard, SortableTreeview, ThreadedTask,
     fmt_currency, fmt_pct,
-    WIN11_BG, WIN11_CARD_BG, WIN11_GREEN, WIN11_RED,
+    WIN11_BG, WIN11_CARD_BG, WIN11_GREEN, WIN11_RED, WIN11_TEXT_MAIN,
     FONT_TITLE, FONT_SECTION, FONT_BODY
 )
 
@@ -41,36 +41,43 @@ class PortfolioTab(ttk.Frame):
         ttk.Label(header, text="Portfolio Tracker", font=FONT_TITLE).pack(side="left")
         ttk.Button(header, text="🔄 Refresh", command=self.load_data).pack(side="right")
 
-        # ── Add Trade Form ──────────────────────────────────────────────
-        form_frame = ttk.LabelFrame(self, text="  Add Position  ", padding=12)
-        form_frame.pack(fill="x", pady=(0, 10))
+        # ── Add Trade Colorful Form Card ────────────────────────────────
+        self.form_card = FormCard(
+            self,
+            title="New Trade Position Entry",
+            accent_color="#059669",
+            bg_color="#f0fdf4",
+            border_color="#86efac",
+            icon="➕",
+        )
+        self.form_card.pack(fill="x", pady=(0, 10))
 
-        form_row = ttk.Frame(form_frame)
+        form_row = tk.Frame(self.form_card.body, bg="#f0fdf4")
         form_row.pack(fill="x")
 
-        ttk.Label(form_row, text="Symbol:").pack(side="left", padx=(0, 4))
+        tk.Label(form_row, text="Symbol:", font=FONT_BODY, bg="#f0fdf4", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.sym_var = tk.StringVar()
         self.sym_combo = ttk.Combobox(form_row, textvariable=self.sym_var, width=13)
         self.sym_combo.pack(side="left", padx=(0, 12))
 
-        ttk.Label(form_row, text="Side:").pack(side="left", padx=(0, 4))
+        tk.Label(form_row, text="Side:", font=FONT_BODY, bg="#f0fdf4", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.side_var = tk.StringVar(value="BUY")
         ttk.Combobox(form_row, textvariable=self.side_var, values=["BUY", "SELL"],
                       width=5, state="readonly").pack(side="left", padx=(0, 12))
 
-        ttk.Label(form_row, text="Qty:").pack(side="left", padx=(0, 4))
+        tk.Label(form_row, text="Qty:", font=FONT_BODY, bg="#f0fdf4", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.qty_var = tk.StringVar()
         ttk.Entry(form_row, textvariable=self.qty_var, width=9).pack(side="left", padx=(0, 12))
 
-        ttk.Label(form_row, text="Price:").pack(side="left", padx=(0, 4))
+        tk.Label(form_row, text="Price:", font=FONT_BODY, bg="#f0fdf4", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.price_var = tk.StringVar()
         ttk.Entry(form_row, textvariable=self.price_var, width=9).pack(side="left", padx=(0, 12))
 
-        ttk.Label(form_row, text="Date:").pack(side="left", padx=(0, 4))
+        tk.Label(form_row, text="Date:", font=FONT_BODY, bg="#f0fdf4", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.date_var = tk.StringVar(value=date.today().isoformat())
         ttk.Entry(form_row, textvariable=self.date_var, width=11).pack(side="left", padx=(0, 12))
 
-        ttk.Button(form_row, text="➕ Add", command=self._add_trade,
+        ttk.Button(form_row, text="➕ Add Position", command=self._add_trade,
                    style="Accent.TButton").pack(side="left", padx=4)
 
         # ── Summary Cards ───────────────────────────────────────────────
@@ -78,13 +85,13 @@ class PortfolioTab(ttk.Frame):
         cards_frame.pack(fill="x", pady=(0, 12))
         cards_frame.columnconfigure(tuple(range(4)), weight=1, uniform="card")
 
-        self.card_cost = InfoCard(cards_frame, "Total Cost Basis", "—")
+        self.card_cost = InfoCard(cards_frame, "Total Cost Basis", "—", accent_color="#0284c7", icon="💼")
         self.card_cost.grid(row=0, column=0, padx=4, sticky="nsew")
-        self.card_value = InfoCard(cards_frame, "Current Value", "—")
+        self.card_value = InfoCard(cards_frame, "Current Value", "—", accent_color="#4f46e5", icon="📈")
         self.card_value.grid(row=0, column=1, padx=4, sticky="nsew")
-        self.card_pnl = InfoCard(cards_frame, "Total P&L", "—")
+        self.card_pnl = InfoCard(cards_frame, "Total P&L", "—", accent_color="#059669", icon="💵")
         self.card_pnl.grid(row=0, column=2, padx=4, sticky="nsew")
-        self.card_pnl_pct = InfoCard(cards_frame, "P&L %", "—")
+        self.card_pnl_pct = InfoCard(cards_frame, "P&L %", "—", accent_color="#059669", icon="📊")
         self.card_pnl_pct.grid(row=0, column=3, padx=4, sticky="nsew")
 
         # ── Content: Table + Pie Chart ──────────────────────────────────

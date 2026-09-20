@@ -188,27 +188,35 @@ class ScrollableFrame(ttk.Frame):
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Info Card Widget (Windows 11 Light Surface Card)
+# Info Card Widget (Windows 11 Light Surface Card with Color Stripe)
 # ══════════════════════════════════════════════════════════════════════════
 
 class InfoCard(tk.Frame):
     """
-    A native Windows 11 card with crisp white background, subtle border,
-    and elegant Segoe UI typography hierarchy.
+    A native Windows 11 KPI card with a vibrant top accent stripe,
+    crisp white background, and bold Segoe UI metric typography.
     """
 
-    def __init__(self, parent, title: str = "", value: str = "—", accent_color: str | None = None, **kw):
-        # Using tk.Frame with explicit styling to ensure complete theme consistency
+    def __init__(self, parent, title: str = "", value: str = "—", accent_color: str = "#0284c7", icon: str = "", **kw):
         super().__init__(parent, bg=WIN11_CARD_BG, highlightbackground=WIN11_CARD_BORDER,
-                         highlightthickness=1, bd=0, padx=12, pady=10, **kw)
+                         highlightthickness=1, bd=0, **kw)
 
-        self._title_var = tk.StringVar(value=title.upper())
+        self._accent = accent_color
+        display_title = f"{icon + ' ' if icon else ''}{title.upper()}"
+        self._title_var = tk.StringVar(value=display_title)
         self._value_var = tk.StringVar(value=value)
-        self._accent = accent_color or WIN11_TEXT_MAIN
+
+        # 3px colorful accent stripe on top
+        self._top_stripe = tk.Frame(self, bg=accent_color, height=3)
+        self._top_stripe.pack(fill="x", side="top")
+
+        # Internal container with comfortable padding
+        inner = tk.Frame(self, bg=WIN11_CARD_BG, padx=12, pady=10)
+        inner.pack(fill="both", expand=True)
 
         # Title / Label
         self._title_lbl = tk.Label(
-            self,
+            inner,
             textvariable=self._title_var,
             font=FONT_CARD_TITLE,
             fg=WIN11_TEXT_MUTED,
@@ -217,23 +225,79 @@ class InfoCard(tk.Frame):
         )
         self._title_lbl.pack(fill="x", anchor="w")
 
-        # Metric Value
+        # Metric Value in Accent Color
         self._val_lbl = tk.Label(
-            self,
+            inner,
             textvariable=self._value_var,
             font=FONT_CARD_VAL,
             fg=self._accent,
             bg=WIN11_CARD_BG,
             anchor="w",
         )
-        self._val_lbl.pack(fill="x", anchor="w", pady=(3, 0))
+        self._val_lbl.pack(fill="x", anchor="w", pady=(2, 0))
 
     def set(self, value: str, title: str | None = None, color: str | None = None):
         self._value_var.set(value)
         if title is not None:
             self._title_var.set(title.upper())
         if color is not None:
+            self._accent = color
+            self._top_stripe.configure(bg=color)
             self._val_lbl.configure(fg=color)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Form Card Widget (Colorful Container for Forms & Control Panels)
+# ══════════════════════════════════════════════════════════════════════════
+
+class FormCard(tk.Frame):
+    """
+    A vibrant Windows 11 Form Area with a colored accent stripe,
+    pill badge header, tinted background, and crisp border.
+    """
+
+    def __init__(
+        self,
+        parent,
+        title: str = "",
+        accent_color: str = "#0067c0",
+        bg_color: str = "#f8faff",
+        border_color: str = "#bfdbfe",
+        icon: str = "⚙",
+        **kw
+    ):
+        super().__init__(
+            parent,
+            bg=bg_color,
+            highlightbackground=border_color,
+            highlightthickness=1,
+            bd=0,
+            **kw
+        )
+        self.accent_color = accent_color
+        self.bg_color = bg_color
+
+        # 1. Top Accent Stripe (3px vibrant line)
+        self._stripe = tk.Frame(self, bg=accent_color, height=3)
+        self._stripe.pack(fill="x", side="top")
+
+        # 2. Header Bar with Pill Badge
+        header_bar = tk.Frame(self, bg=bg_color, padx=14, pady=8)
+        header_bar.pack(fill="x", side="top")
+
+        badge = tk.Frame(header_bar, bg=accent_color, padx=8, pady=3)
+        badge.pack(side="left")
+        tk.Label(
+            badge,
+            text=f"{icon} {title.upper()}",
+            font=("Segoe UI Semibold", 9),
+            fg="#ffffff",
+            bg=accent_color,
+        ).pack()
+
+        # 3. Content Body for form controls
+        self.body = tk.Frame(self, bg=bg_color, padx=14, pady=8)
+        self.body.pack(fill="both", expand=True, side="top")
 
 
 # ══════════════════════════════════════════════════════════════════════════

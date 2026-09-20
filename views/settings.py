@@ -1,7 +1,7 @@
-# views/settings.py  –  Settings & Configuration Tab (Windows 11 Light)
+# views/settings.py  –  Settings & Configuration Tab (Windows 11 Colorful UI)
 """
 Application settings: database path, QQE defaults, Telegram config,
-Gemini API key, theme toggle, and about info styled for Windows 11 Light.
+Gemini API key, theme toggle, and about info styled with colorful FormCards.
 """
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from tkinter import ttk, messagebox, filedialog
 from typing import TYPE_CHECKING
 
 import sv_ttk
-from ui_utils import setup_win11_styles, WIN11_BG, FONT_TITLE, FONT_SECTION, FONT_BODY
+from ui_utils import FormCard, setup_win11_styles, WIN11_BG, WIN11_TEXT_MAIN, FONT_TITLE, FONT_SECTION, FONT_BODY
 
 if TYPE_CHECKING:
     from app import MainApp
@@ -25,100 +25,140 @@ class SettingsTab(ttk.Frame):
 
     def _build_ui(self):
         # ── Header ──────────────────────────────────────────────────────
-        ttk.Label(self, text="Settings", font=FONT_TITLE).pack(anchor="w", pady=(0, 12))
+        ttk.Label(self, text="Settings & Preferences", font=FONT_TITLE).pack(anchor="w", pady=(0, 10))
 
-        # ── Database ────────────────────────────────────────────────────
-        db_frame = ttk.LabelFrame(self, text="  Database  ", padding=12)
-        db_frame.pack(fill="x", pady=(0, 10))
+        # ── Database Colorful Card ──────────────────────────────────────
+        self.db_card = FormCard(
+            self,
+            title="SQLite Database Connection",
+            accent_color="#0284c7",
+            bg_color="#f0f7ff",
+            border_color="#bae6fd",
+            icon="📂",
+        )
+        self.db_card.pack(fill="x", pady=(0, 8))
 
-        db_row = ttk.Frame(db_frame)
+        db_row = tk.Frame(self.db_card.body, bg="#f0f7ff")
         db_row.pack(fill="x")
-        ttk.Label(db_row, text="Database Path:").pack(side="left", padx=(0, 8))
+        tk.Label(db_row, text="Database Path:", font=FONT_BODY, bg="#f0f7ff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 8))
         self.db_var = tk.StringVar(value=self.app.engine.db_path)
         ttk.Entry(db_row, textvariable=self.db_var, width=60,
                   state="readonly").pack(side="left", padx=(0, 8), fill="x", expand=True)
         ttk.Button(db_row, text="📂 Browse", command=self._browse_db).pack(side="left")
 
-        # ── QQE Defaults ────────────────────────────────────────────────
-        qqe_frame = ttk.LabelFrame(self, text="  QQE Default Parameters  ", padding=12)
-        qqe_frame.pack(fill="x", pady=(0, 10))
+        # ── QQE Defaults Colorful Card ──────────────────────────────────
+        self.qqe_card = FormCard(
+            self,
+            title="Default QQE Strategy Parameters",
+            accent_color="#4f46e5",
+            bg_color="#f8faff",
+            border_color="#c7d2fe",
+            icon="⚡",
+        )
+        self.qqe_card.pack(fill="x", pady=(0, 8))
 
-        qqe_row = ttk.Frame(qqe_frame)
+        qqe_row = tk.Frame(self.qqe_card.body, bg="#f8faff")
         qqe_row.pack(fill="x")
 
-        ttk.Label(qqe_row, text="RSI Period:").pack(side="left", padx=(0, 4))
+        tk.Label(qqe_row, text="RSI Period:", font=FONT_BODY, bg="#f8faff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.rsi_var = tk.IntVar(value=14)
-        ttk.Spinbox(qqe_row, from_=2, to=50, textvariable=self.rsi_var,
-                     width=5).pack(side="left", padx=(0, 20))
+        ttk.Spinbox(qqe_row, from_=2, to=50, textvariable=self.rsi_var, width=5).pack(side="left", padx=(0, 20))
 
-        ttk.Label(qqe_row, text="SF:").pack(side="left", padx=(0, 4))
+        tk.Label(qqe_row, text="SF:", font=FONT_BODY, bg="#f8faff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.sf_var = tk.IntVar(value=5)
-        ttk.Spinbox(qqe_row, from_=1, to=20, textvariable=self.sf_var,
-                     width=5).pack(side="left", padx=(0, 20))
+        ttk.Spinbox(qqe_row, from_=1, to=20, textvariable=self.sf_var, width=5).pack(side="left", padx=(0, 20))
 
-        ttk.Label(qqe_row, text="QQE Factor:").pack(side="left", padx=(0, 4))
+        tk.Label(qqe_row, text="QQE Factor:", font=FONT_BODY, bg="#f8faff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.qqe_var = tk.DoubleVar(value=4.238)
         ttk.Entry(qqe_row, textvariable=self.qqe_var, width=7).pack(side="left", padx=(0, 20))
 
-        ttk.Label(qqe_row, text="Threshold:").pack(side="left", padx=(0, 4))
+        tk.Label(qqe_row, text="Threshold:", font=FONT_BODY, bg="#f8faff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.thresh_var = tk.IntVar(value=10)
-        ttk.Spinbox(qqe_row, from_=1, to=50, textvariable=self.thresh_var,
-                     width=5).pack(side="left")
+        ttk.Spinbox(qqe_row, from_=1, to=50, textvariable=self.thresh_var, width=5).pack(side="left")
 
-        # ── Telegram ────────────────────────────────────────────────────
-        tg_frame = ttk.LabelFrame(self, text="  Telegram Alerts  ", padding=12)
-        tg_frame.pack(fill="x", pady=(0, 10))
+        # ── Telegram Colorful Card ──────────────────────────────────────
+        self.tg_card = FormCard(
+            self,
+            title="Telegram Signal Alerts Integration",
+            accent_color="#0ea5e9",
+            bg_color="#f0f9ff",
+            border_color="#7dd3fc",
+            icon="✈",
+        )
+        self.tg_card.pack(fill="x", pady=(0, 8))
 
-        tg_row1 = ttk.Frame(tg_frame)
+        tg_row1 = tk.Frame(self.tg_card.body, bg="#f0f9ff")
         tg_row1.pack(fill="x", pady=(0, 6))
-        ttk.Label(tg_row1, text="Bot Token:").pack(side="left", padx=(0, 8))
+        tk.Label(tg_row1, text="Bot Token:", font=FONT_BODY, bg="#f0f9ff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 8))
         self.tg_token_var = tk.StringVar(value=os.getenv("TELEGRAM_BOT_TOKEN", ""))
         ttk.Entry(tg_row1, textvariable=self.tg_token_var, width=50,
                   show="•").pack(side="left", fill="x", expand=True, padx=(0, 8))
 
-        tg_row2 = ttk.Frame(tg_frame)
+        tg_row2 = tk.Frame(self.tg_card.body, bg="#f0f9ff")
         tg_row2.pack(fill="x")
-        ttk.Label(tg_row2, text="Chat ID:").pack(side="left", padx=(0, 8))
+        tk.Label(tg_row2, text="Chat ID:", font=FONT_BODY, bg="#f0f9ff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 8))
         self.tg_chat_var = tk.StringVar(value=os.getenv("TELEGRAM_CHAT_ID", ""))
         ttk.Entry(tg_row2, textvariable=self.tg_chat_var, width=28).pack(side="left", padx=(0, 12))
 
-        ttk.Button(tg_row2, text="📤 Test Alert", command=self._test_telegram).pack(side="left")
+        ttk.Button(tg_row2, text="📤 Test Alert Message", command=self._test_telegram).pack(side="left")
 
-        # ── Gemini API ──────────────────────────────────────────────────
-        gem_frame = ttk.LabelFrame(self, text="  Google Gemini AI  ", padding=12)
-        gem_frame.pack(fill="x", pady=(0, 10))
+        # ── Gemini API Colorful Card ────────────────────────────────────
+        self.gem_card = FormCard(
+            self,
+            title="Google Gemini 2.5 Flash AI API",
+            accent_color="#7c3aed",
+            bg_color="#faf5ff",
+            border_color="#ddd6fe",
+            icon="🤖",
+        )
+        self.gem_card.pack(fill="x", pady=(0, 8))
 
-        gem_row = ttk.Frame(gem_frame)
+        gem_row = tk.Frame(self.gem_card.body, bg="#faf5ff")
         gem_row.pack(fill="x")
-        ttk.Label(gem_row, text="API Key:").pack(side="left", padx=(0, 8))
+        tk.Label(gem_row, text="API Key:", font=FONT_BODY, bg="#faf5ff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 8))
         import gemini_analyzer as ga
         self.gem_key_var = tk.StringVar(value=os.getenv("GEMINI_API_KEY", ga.API_KEY))
         ttk.Entry(gem_row, textvariable=self.gem_key_var, width=50,
                   show="•").pack(side="left", fill="x", expand=True)
 
-        # ── Theme ───────────────────────────────────────────────────────
-        theme_frame = ttk.LabelFrame(self, text="  Appearance  ", padding=12)
-        theme_frame.pack(fill="x", pady=(0, 10))
+        # ── Theme Colorful Card ─────────────────────────────────────────
+        self.theme_card = FormCard(
+            self,
+            title="Windows 11 Appearance Theme",
+            accent_color="#0d9488",
+            bg_color="#f0fdfa",
+            border_color="#99f6e4",
+            icon="🎨",
+        )
+        self.theme_card.pack(fill="x", pady=(0, 8))
 
-        theme_row = ttk.Frame(theme_frame)
+        theme_row = tk.Frame(self.theme_card.body, bg="#f0fdfa")
         theme_row.pack(fill="x")
-        ttk.Label(theme_row, text="Theme Mode:").pack(side="left", padx=(0, 12))
+        tk.Label(theme_row, text="Theme Mode:", font=FONT_BODY, bg="#f0fdfa", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 12))
 
         self.theme_var = tk.StringVar(value="light")
-        ttk.Radiobutton(theme_row, text="☀️ Light (Windows 11)", variable=self.theme_var,
+        ttk.Radiobutton(theme_row, text="☀️ Light (Windows 11 Fluent)", variable=self.theme_var,
                         value="light", command=self._toggle_theme).pack(side="left", padx=8)
         ttk.Radiobutton(theme_row, text="🌙 Dark", variable=self.theme_var,
                         value="dark", command=self._toggle_theme).pack(side="left", padx=8)
 
-        # ── About ───────────────────────────────────────────────────────
-        about_frame = ttk.LabelFrame(self, text="  About  ", padding=12)
-        about_frame.pack(fill="x")
+        # ── About Card ──────────────────────────────────────────────────
+        self.about_card = FormCard(
+            self,
+            title="Application Details",
+            accent_color="#475569",
+            bg_color="#f8fafc",
+            border_color="#cbd5e1",
+            icon="ℹ",
+        )
+        self.about_card.pack(fill="x")
 
-        ttk.Label(about_frame, text="CSE Stock Analyzer", font=("Segoe UI Semibold", 11)).pack(anchor="w")
-        ttk.Label(about_frame, text="Colombo Stock Exchange Technical Analysis Desktop Application",
-                  font=FONT_BODY, foreground="#64748b").pack(anchor="w", pady=(2, 0))
-        ttk.Label(about_frame, text="Native Windows 11 UI  •  Light Theme  •  Python 3.14.7",
-                  font=FONT_BODY, foreground="#94a3b8").pack(anchor="w", pady=(2, 0))
+        about_body = self.about_card.body
+        tk.Label(about_body, text="CSE Stock Analyzer", font=("Segoe UI Semibold", 11), bg="#f8fafc", fg=WIN11_TEXT_MAIN).pack(anchor="w")
+        tk.Label(about_body, text="Colombo Stock Exchange Technical Analysis Desktop Application",
+                 font=FONT_BODY, fg="#64748b", bg="#f8fafc").pack(anchor="w", pady=(2, 0))
+        tk.Label(about_body, text="Native Windows 11 UI  •  Light Theme  •  Python 3.14.7",
+                 font=FONT_BODY, fg="#94a3b8", bg="#f8fafc").pack(anchor="w", pady=(2, 0))
 
     # ── Actions ─────────────────────────────────────────────────────────
 

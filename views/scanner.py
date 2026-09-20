@@ -10,8 +10,8 @@ from tkinter import ttk
 from typing import TYPE_CHECKING
 
 from ui_utils import (
-    SortableTreeview, ThreadedTask,
-    WIN11_GREEN, WIN11_RED, WIN11_TEXT_MUTED,
+    FormCard, SortableTreeview, ThreadedTask,
+    WIN11_GREEN, WIN11_RED, WIN11_TEXT_MAIN, WIN11_TEXT_MUTED,
     FONT_TITLE, FONT_SECTION, FONT_BODY
 )
 
@@ -32,30 +32,37 @@ class ScannerTab(ttk.Frame):
         header.pack(fill="x", pady=(0, 10))
         ttk.Label(header, text="QQE Signal Scanner", font=FONT_TITLE).pack(side="left")
 
-        # ── Parameters Frame ────────────────────────────────────────────
-        params_frame = ttk.LabelFrame(self, text="  QQE Parameters  ", padding=12)
-        params_frame.pack(fill="x", pady=(0, 10))
+        # ── Parameters Colorful Form Card ───────────────────────────────
+        self.params_card = FormCard(
+            self,
+            title="QQE Strategy Parameters",
+            accent_color="#4f46e5",
+            bg_color="#f8faff",
+            border_color="#c7d2fe",
+            icon="🔍",
+        )
+        self.params_card.pack(fill="x", pady=(0, 10))
 
-        param_row = ttk.Frame(params_frame)
+        param_row = tk.Frame(self.params_card.body, bg="#f8faff")
         param_row.pack(fill="x")
 
-        ttk.Label(param_row, text="RSI Period:").pack(side="left", padx=(0, 4))
+        tk.Label(param_row, text="RSI Period:", font=FONT_BODY, bg="#f8faff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.rsi_var = tk.IntVar(value=14)
         ttk.Spinbox(param_row, from_=2, to=50, textvariable=self.rsi_var, width=5).pack(side="left", padx=(0, 16))
 
-        ttk.Label(param_row, text="SF:").pack(side="left", padx=(0, 4))
+        tk.Label(param_row, text="SF:", font=FONT_BODY, bg="#f8faff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.sf_var = tk.IntVar(value=5)
         ttk.Spinbox(param_row, from_=1, to=20, textvariable=self.sf_var, width=5).pack(side="left", padx=(0, 16))
 
-        ttk.Label(param_row, text="QQE Factor:").pack(side="left", padx=(0, 4))
+        tk.Label(param_row, text="QQE Factor:", font=FONT_BODY, bg="#f8faff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.qqe_var = tk.DoubleVar(value=4.238)
         ttk.Entry(param_row, textvariable=self.qqe_var, width=7).pack(side="left", padx=(0, 16))
 
-        ttk.Label(param_row, text="Threshold:").pack(side="left", padx=(0, 4))
+        tk.Label(param_row, text="Threshold:", font=FONT_BODY, bg="#f8faff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.thresh_var = tk.IntVar(value=10)
         ttk.Spinbox(param_row, from_=1, to=50, textvariable=self.thresh_var, width=5).pack(side="left", padx=(0, 16))
 
-        ttk.Button(param_row, text="🔍 Scan Now", command=self._run_scan,
+        ttk.Button(param_row, text="🔍 Scan All Stocks", command=self._run_scan,
                    style="Accent.TButton").pack(side="right", padx=4)
 
         # ── Filter Row ──────────────────────────────────────────────────

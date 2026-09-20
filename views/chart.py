@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
-from ui_utils import ThreadedTask, WIN11_BG, WIN11_CARD_BG, WIN11_TEXT_MAIN, WIN11_TEXT_MUTED, FONT_TITLE
+from ui_utils import ThreadedTask, FormCard, WIN11_BG, WIN11_CARD_BG, WIN11_TEXT_MAIN, WIN11_TEXT_MUTED, FONT_TITLE
 
 if TYPE_CHECKING:
     from app import MainApp
@@ -36,14 +36,24 @@ class ChartTab(ttk.Frame):
         self._build_ui()
 
     def _build_ui(self):
-        # ── Controls Bar ────────────────────────────────────────────────
-        ctrl = ttk.Frame(self)
-        ctrl.pack(fill="x", pady=(0, 10))
+        # ── Controls Colorful Form Card ─────────────────────────────────
+        self.ctrl_card = FormCard(
+            self,
+            title="Chart Display & Indicators",
+            accent_color="#0067c0",
+            bg_color="#f0f7ff",
+            border_color="#93c5fd",
+            icon="📈",
+        )
+        self.ctrl_card.pack(fill="x", pady=(0, 10))
 
-        ttk.Label(ctrl, text="Symbol:", font=("Segoe UI Semibold", 10)).pack(side="left", padx=(0, 6))
+        ctrl = tk.Frame(self.ctrl_card.body, bg="#f0f7ff")
+        ctrl.pack(fill="x")
+
+        tk.Label(ctrl, text="Symbol:", font=("Segoe UI Semibold", 9), bg="#f0f7ff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 6))
 
         self.symbol_var = tk.StringVar()
-        self.symbol_combo = ttk.Combobox(ctrl, textvariable=self.symbol_var, width=18, font=("Segoe UI", 10))
+        self.symbol_combo = ttk.Combobox(ctrl, textvariable=self.symbol_var, width=16, font=("Segoe UI", 9))
         self.symbol_combo.pack(side="left", padx=(0, 8))
         self.symbol_combo.bind("<<ComboboxSelected>>", lambda e: self._on_load())
         self.symbol_combo.bind("<Return>", lambda e: self._on_load())
@@ -51,15 +61,15 @@ class ChartTab(ttk.Frame):
         ttk.Button(ctrl, text="📈 Load Chart", style="Accent.TButton", command=self._on_load).pack(side="left", padx=4)
 
         # Period selector
-        ttk.Separator(ctrl, orient="vertical").pack(side="left", fill="y", padx=14)
-        ttk.Label(ctrl, text="Period:").pack(side="left", padx=(0, 4))
+        ttk.Separator(ctrl, orient="vertical").pack(side="left", fill="y", padx=12)
+        tk.Label(ctrl, text="Period:", font=("Segoe UI Semibold", 9), bg="#f0f7ff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.period_var = tk.StringVar(value="1Y")
         for p in ["1M", "3M", "6M", "1Y", "All"]:
             ttk.Radiobutton(ctrl, text=p, variable=self.period_var, value=p,
                             command=self._on_load).pack(side="left", padx=3)
 
         # Indicator toggles
-        ttk.Separator(ctrl, orient="vertical").pack(side="left", fill="y", padx=14)
+        ttk.Separator(ctrl, orient="vertical").pack(side="left", fill="y", padx=12)
         self.show_ma_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(ctrl, text="MA 50/200", variable=self.show_ma_var,
                         command=self._on_load).pack(side="left", padx=4)

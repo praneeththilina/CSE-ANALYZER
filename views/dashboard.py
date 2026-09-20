@@ -49,22 +49,22 @@ class DashboardTab(ttk.Frame):
         cards_frame.pack(fill="x", pady=(0, 14))
         cards_frame.columnconfigure(tuple(range(6)), weight=1, uniform="card")
 
-        self.card_symbols = InfoCard(cards_frame, "Total Symbols", "—")
+        self.card_symbols = InfoCard(cards_frame, "Total Symbols", "—", accent_color="#0284c7", icon="🌐")
         self.card_symbols.grid(row=0, column=0, padx=4, pady=2, sticky="nsew")
 
-        self.card_enabled = InfoCard(cards_frame, "Enabled (QQE)", "—")
+        self.card_enabled = InfoCard(cards_frame, "Enabled (QQE)", "—", accent_color="#4f46e5", icon="⚡")
         self.card_enabled.grid(row=0, column=1, padx=4, pady=2, sticky="nsew")
 
-        self.card_bars = InfoCard(cards_frame, "Total Bars", "—")
+        self.card_bars = InfoCard(cards_frame, "Total Bars", "—", accent_color="#7c3aed", icon="📊")
         self.card_bars.grid(row=0, column=2, padx=4, pady=2, sticky="nsew")
 
-        self.card_last_bar = InfoCard(cards_frame, "Last Bar Date", "—")
+        self.card_last_bar = InfoCard(cards_frame, "Last Bar Date", "—", accent_color="#d97706", icon="📅")
         self.card_last_bar.grid(row=0, column=3, padx=4, pady=2, sticky="nsew")
 
-        self.card_long_7d = InfoCard(cards_frame, "Long Signals (7d)", "—", accent_color=WIN11_GREEN)
+        self.card_long_7d = InfoCard(cards_frame, "Long Signals (7d)", "—", accent_color="#059669", icon="▲")
         self.card_long_7d.grid(row=0, column=4, padx=4, pady=2, sticky="nsew")
 
-        self.card_short_7d = InfoCard(cards_frame, "Short Signals (7d)", "—", accent_color=WIN11_RED)
+        self.card_short_7d = InfoCard(cards_frame, "Short Signals (7d)", "—", accent_color="#e11d48", icon="▼")
         self.card_short_7d.grid(row=0, column=5, padx=4, pady=2, sticky="nsew")
 
         # ── Main content: Gainers/Losers + Recent Signals ───────────────

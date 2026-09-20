@@ -19,8 +19,8 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
 from ui_utils import (
-    InfoCard, SortableTreeview, ThreadedTask, fmt_currency,
-    WIN11_BG, WIN11_CARD_BG, WIN11_GREEN, WIN11_RED, WIN11_ACCENT,
+    InfoCard, FormCard, SortableTreeview, ThreadedTask, fmt_currency,
+    WIN11_BG, WIN11_CARD_BG, WIN11_GREEN, WIN11_RED, WIN11_ACCENT, WIN11_TEXT_MAIN,
     FONT_TITLE, FONT_SECTION, FONT_BODY
 )
 
@@ -41,50 +41,57 @@ class BacktestTab(ttk.Frame):
         header.pack(fill="x", pady=(0, 10))
         ttk.Label(header, text="Backtest Engine", font=FONT_TITLE).pack(side="left")
 
-        # ── Configuration Panel ─────────────────────────────────────────
-        config = ttk.LabelFrame(self, text="  Backtest Configuration  ", padding=12)
-        config.pack(fill="x", pady=(0, 10))
+        # ── Configuration Colorful Form Card ────────────────────────────
+        self.config_card = FormCard(
+            self,
+            title="Strategy & Risk Management Settings",
+            accent_color="#d97706",
+            bg_color="#fffbeb",
+            border_color="#fcd34d",
+            icon="⚡",
+        )
+        self.config_card.pack(fill="x", pady=(0, 10))
 
-        row1 = ttk.Frame(config)
-        row1.pack(fill="x", pady=(0, 8))
+        row1 = tk.Frame(self.config_card.body, bg="#fffbeb")
+        row1.pack(fill="x", pady=(0, 6))
 
-        ttk.Label(row1, text="Symbol:").pack(side="left", padx=(0, 4))
+        tk.Label(row1, text="Symbol:", font=FONT_BODY, bg="#fffbeb", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.sym_var = tk.StringVar()
         self.sym_combo = ttk.Combobox(row1, textvariable=self.sym_var, width=15)
         self.sym_combo.pack(side="left", padx=(0, 16))
 
-        ttk.Label(row1, text="Capital (LKR):").pack(side="left", padx=(0, 4))
+        tk.Label(row1, text="Capital (LKR):", font=FONT_BODY, bg="#fffbeb", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.capital_var = tk.StringVar(value="100000")
         ttk.Entry(row1, textvariable=self.capital_var, width=10).pack(side="left", padx=(0, 16))
 
-        ttk.Label(row1, text="Commission %:").pack(side="left", padx=(0, 4))
+        tk.Label(row1, text="Comm %:", font=FONT_BODY, bg="#fffbeb", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.comm_var = tk.StringVar(value="0.1")
         ttk.Entry(row1, textvariable=self.comm_var, width=6).pack(side="left", padx=(0, 16))
 
-        ttk.Label(row1, text="Stop Loss %:").pack(side="left", padx=(0, 4))
+        tk.Label(row1, text="Stop Loss %:", font=FONT_BODY, bg="#fffbeb", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.sl_var = tk.StringVar(value="0")
         ttk.Entry(row1, textvariable=self.sl_var, width=6).pack(side="left", padx=(0, 16))
 
-        ttk.Label(row1, text="Take Profit %:").pack(side="left", padx=(0, 4))
+        tk.Label(row1, text="Take Profit %:", font=FONT_BODY, bg="#fffbeb", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.tp_var = tk.StringVar(value="0")
         ttk.Entry(row1, textvariable=self.tp_var, width=6).pack(side="left")
 
-        row2 = ttk.Frame(config)
+        row2 = tk.Frame(self.config_card.body, bg="#fffbeb")
         row2.pack(fill="x")
 
-        ttk.Label(row2, text="RSI Period:").pack(side="left", padx=(0, 4))
+        tk.Label(row2, text="RSI Period:", font=FONT_BODY, bg="#fffbeb", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.rsi_var = tk.IntVar(value=14)
         ttk.Spinbox(row2, from_=2, to=50, textvariable=self.rsi_var, width=5).pack(side="left", padx=(0, 16))
 
-        ttk.Label(row2, text="SF:").pack(side="left", padx=(0, 4))
+        tk.Label(row2, text="SF:", font=FONT_BODY, bg="#fffbeb", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.sf_var = tk.IntVar(value=5)
         ttk.Spinbox(row2, from_=1, to=20, textvariable=self.sf_var, width=5).pack(side="left", padx=(0, 16))
 
-        ttk.Label(row2, text="QQE Factor:").pack(side="left", padx=(0, 4))
+        tk.Label(row2, text="QQE Factor:", font=FONT_BODY, bg="#fffbeb", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.qqe_var = tk.DoubleVar(value=4.238)
         ttk.Entry(row2, textvariable=self.qqe_var, width=7).pack(side="left", padx=(0, 16))
 
-        ttk.Label(row2, text="Threshold:").pack(side="left", padx=(0, 4))
+        tk.Label(row2, text="Threshold:", font=FONT_BODY, bg="#fffbeb", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.thresh_var = tk.IntVar(value=10)
         ttk.Spinbox(row2, from_=1, to=50, textvariable=self.thresh_var, width=5).pack(side="left", padx=(0, 16))
 
@@ -96,25 +103,25 @@ class BacktestTab(ttk.Frame):
         stats_frame.pack(fill="x", pady=(0, 10))
         stats_frame.columnconfigure(tuple(range(7)), weight=1, uniform="stat")
 
-        self.stat_return = InfoCard(stats_frame, "Total Return", "—")
+        self.stat_return = InfoCard(stats_frame, "Total Return", "—", accent_color="#059669", icon="📈")
         self.stat_return.grid(row=0, column=0, padx=3, sticky="nsew")
 
-        self.stat_trades = InfoCard(stats_frame, "Total Trades", "—")
+        self.stat_trades = InfoCard(stats_frame, "Total Trades", "—", accent_color="#0284c7", icon="🔢")
         self.stat_trades.grid(row=0, column=1, padx=3, sticky="nsew")
 
-        self.stat_winrate = InfoCard(stats_frame, "Win Rate", "—")
+        self.stat_winrate = InfoCard(stats_frame, "Win Rate", "—", accent_color="#059669", icon="🎯")
         self.stat_winrate.grid(row=0, column=2, padx=3, sticky="nsew")
 
-        self.stat_pf = InfoCard(stats_frame, "Profit Factor", "—")
+        self.stat_pf = InfoCard(stats_frame, "Profit Factor", "—", accent_color="#4f46e5", icon="⚖")
         self.stat_pf.grid(row=0, column=3, padx=3, sticky="nsew")
 
-        self.stat_avgwin = InfoCard(stats_frame, "Avg. Win", "—", accent_color=WIN11_GREEN)
+        self.stat_avgwin = InfoCard(stats_frame, "Avg. Win", "—", accent_color="#059669", icon="▲")
         self.stat_avgwin.grid(row=0, column=4, padx=3, sticky="nsew")
 
-        self.stat_avgloss = InfoCard(stats_frame, "Avg. Loss", "—", accent_color=WIN11_RED)
+        self.stat_avgloss = InfoCard(stats_frame, "Avg. Loss", "—", accent_color="#e11d48", icon="▼")
         self.stat_avgloss.grid(row=0, column=5, padx=3, sticky="nsew")
 
-        self.stat_dd = InfoCard(stats_frame, "Max Drawdown", "—")
+        self.stat_dd = InfoCard(stats_frame, "Max Drawdown", "—", accent_color="#e11d48", icon="📉")
         self.stat_dd.grid(row=0, column=6, padx=3, sticky="nsew")
 
         # ── Lower Split: Equity Curve + Trade Log ───────────────────────
