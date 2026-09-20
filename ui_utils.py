@@ -255,6 +255,10 @@ class InfoCard(tk.Frame):
             self._top_stripe.configure(bg=color)
             self._val_lbl.configure(fg=color)
 
+    def set_value(self, value: str, title: str | None = None, color: str | None = None):
+        """Alias for set() for backwards compatibility."""
+        self.set(value, title=title, color=color)
+
 
 # ══════════════════════════════════════════════════════════════════════════
 # Form Card Widget (Colorful Container for Forms & Control Panels)

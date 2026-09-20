@@ -183,6 +183,11 @@ class WatchlistTab(ttk.Frame):
         except Exception:
             pass
 
+    def on_tab_shown(self):
+        self._refresh_watchlist_names()
+        self._refresh_symbols_autocomplete()
+        self.load_data()
+
     def load_data(self):
         """Fetches items for the currently selected watchlist in a background thread."""
         lname = self.list_var.get()
@@ -251,10 +256,10 @@ class WatchlistTab(ttk.Frame):
 
         # Update summary cards
         lname = self.list_var.get()
-        self.card_list_name.set_value(lname[:18] + ("…" if len(lname) > 18 else ""))
-        self.card_count.set_value(str(len(items)))
-        self.card_high_alerts.set_value(str(high_hits))
-        self.card_low_alerts.set_value(str(low_hits))
+        self.card_list_name.set(lname[:18] + ("…" if len(lname) > 18 else ""))
+        self.card_count.set(str(len(items)))
+        self.card_high_alerts.set(str(high_hits))
+        self.card_low_alerts.set(str(low_hits))
 
         msg = f"Watchlist '{lname}' loaded ({len(items)} stocks)."
         if high_hits > 0 or low_hits > 0:
