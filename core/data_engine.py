@@ -415,12 +415,90 @@ class DataEngine:
         stocks.send_telegram_message(text, force=True)
         return f"Successfully sent {len(top_signals)} signals to Telegram!"
 
+    @staticmethod
+    def detect_candlestick_pattern(df: pd.DataFrame) -> Dict[str, Any]:
+        """
+        Identifies high-probability reversal and continuation candlestick patterns
+        on the most recent daily bars: Hammer, Bullish Engulfing, Morning Star,
+        Shooting Star, Evening Star, and Doji.
+        """
+        if df.empty or len(df) < 3:
+            return {"pattern": "—", "bias": "Neutral"}
+
+        last = df.iloc[-1]
+        prev = df.iloc[-2]
+        prev2 = df.iloc[-3]
+
+        c, o, h, l = float(last["close"]), float(last["open"]), float(last["high"]), float(last["low"])
+        pc, po, ph, pl = float(prev["close"]), float(prev["open"]), float(prev["high"]), float(prev["low"])
+        p2c, p2o, p2h, p2l = float(prev2["close"]), float(prev2["open"]), float(prev2["high"]), float(prev2["low"])
+
+        body = abs(c - o)
+        tot_range = max(h - l, 0.001)
+        upper_wick = h - max(c, o)
+        lower_wick = min(c, o) - l
+
+        prev_body = abs(pc - po)
+        prev_range = max(ph - pl, 0.001)
+
+        # 1. Bullish Hammer (Lower wick >= 1.8x body, small upper wick)
+        if lower_wick >= 1.8 * body and upper_wick <= 0.35 * body and body > 0.05 * tot_range:
+            return {"pattern": "Hammer 🔨", "bias": "Bullish"}
+
+        # 2. Bullish Engulfing (Previous red, current green completely engulfs)
+        if pc < po and c > o and c >= po and o <= pc and body > prev_body:
+            return {"pattern": "Engulfing 🟢", "bias": "Bullish"}
+
+        # 3. Morning Star (Bearish, Small star, Bullish recovery)
+        if p2c < p2o and prev_body <= 0.35 * (p2h - p2l) and c > o and c > (p2o + p2c) / 2.0:
+            return {"pattern": "Morning Star ☀️", "bias": "Bullish"}
+
+        # 4. Shooting Star / Inverted Hammer (Upper wick >= 1.8x body, small lower wick)
+        if upper_wick >= 1.8 * body and lower_wick <= 0.35 * body and body > 0.05 * tot_range:
+            return {"pattern": "Shooting Star ⚠️", "bias": "Bearish"}
+
+        # 5. Bearish Engulfing (Previous green, current red completely engulfs)
+        if pc > po and c < o and c <= po and o >= pc and body > prev_body:
+            return {"pattern": "Engulfing 🔴", "bias": "Bearish"}
+
+        # 6. Doji (Indecision / Equilibrium)
+        if body <= 0.10 * tot_range:
+            return {"pattern": "Doji ⚖️", "bias": "Neutral"}
+
+        return {"pattern": "—", "bias": "Neutral"}
+
+    @staticmethod
+    def compute_52w_extremes(df: pd.DataFrame) -> Dict[str, Any]:
+        """
+        Computes distance from 52-week High and Low.
+        """
+        if df.empty or len(df) < 10:
+            return {"high_52w": 0.0, "low_52w": 0.0, "dist_high_pct": 0.0, "dist_low_pct": 0.0, "near_breakout": False, "dist_high_str": "0.0%"}
+
+        sub = df.tail(min(250, len(df)))
+        high_52w = float(sub["high"].max())
+        low_52w = float(sub["low"].min())
+        c_last = float(df["close"].iloc[-1])
+
+        dist_high_pct = round(((c_last - high_52w) / high_52w) * 100.0, 1) if high_52w > 0 else 0.0
+        dist_low_pct = round(((c_last - low_52w) / low_52w) * 100.0, 1) if low_52w > 0 else 0.0
+        near_breakout = dist_high_pct >= -5.0  # within 5% of 52W High
+
+        return {
+            "high_52w": round(high_52w, 2),
+            "low_52w": round(low_52w, 2),
+            "dist_high_pct": dist_high_pct,
+            "dist_low_pct": dist_low_pct,
+            "near_breakout": near_breakout,
+            "dist_high_str": f"{dist_high_pct:+.1f}%" + (" 🔥" if near_breakout else ""),
+        }
+
     # ── Confluence & Risk Decision Support ─────────────────────────────
 
     def compute_confluence(self, df: pd.DataFrame, signal: int = 1) -> Dict[str, Any]:
         """
         Computes multi-indicator confluence score (0-100), quality grade,
-        divergence, multi-timeframe weekly trend, and Fibonacci levels.
+        divergence, weekly trend, candlestick pattern, 52W breakout, and Fibonacci levels.
         """
         if df.empty or len(df) < 20:
             return {
@@ -431,6 +509,12 @@ class DataEngine:
                 "trend_text": "—",
                 "divergence": "—",
                 "weekly_trend": "▲ Bullish",
+                "pattern": "—",
+                "pattern_bias": "Neutral",
+                "dist_52w_high": "0.0%",
+                "near_breakout": False,
+                "high_52w": 0.0,
+                "low_52w": 0.0,
                 "vol_ratio": 1.0,
                 "vol_ratio_str": "1.0x",
                 "atr": 1.0,
@@ -485,9 +569,11 @@ class DataEngine:
         r1 = float(high.tail(min(20, len(high))).max())
         r2 = float(high.tail(min(250, len(high))).max())
 
-        # 5. Divergence & Multi-Timeframe Weekly Trend
+        # 5. Advanced Engines: Divergence, Weekly Trend, Pattern, 52W Extremes & Fib
         div_info = self.detect_divergence(df, lookback=30)
         weekly_info = self.compute_weekly_trend(df)
+        pattern_info = self.detect_candlestick_pattern(df)
+        extremes_52w = self.compute_52w_extremes(df)
         fib_levels = self.compute_fibonacci_levels(df, lookback=120)
 
         # 6. Confluence Scoring (0 - 100)
@@ -498,41 +584,41 @@ class DataEngine:
             trend_text = "▲ Bullish" if is_above_200 else "▼ Below 200 EMA"
             trend_status = "Bullish" if is_above_200 else "Counter-Trend"
             if is_above_200:
-                score += 20
+                score += 15
             elif is_above_50:
                 score += 10
             if is_golden_cross:
                 score += 10
-            # Weekly trend bonus
             if weekly_info.get("weekly_bullish"):
                 score += 10
-            # Divergence bonus
             if div_info.get("bullish"):
                 score += 15
+            if pattern_info.get("bias") == "Bullish":
+                score += 10
+            if extremes_52w.get("near_breakout"):
+                score += 10
         else:  # SHORT
             trend_text = "▼ Bearish" if not is_above_200 else "▲ Above 200 EMA"
             trend_status = "Bearish" if not is_above_200 else "Counter-Trend"
             if not is_above_200:
-                score += 20
+                score += 15
             elif not is_above_50:
                 score += 10
             if not is_golden_cross:
                 score += 10
-            # Weekly trend bonus
             if not weekly_info.get("weekly_bullish"):
                 score += 10
-            # Divergence bonus
             if div_info.get("bearish"):
                 score += 15
+            if pattern_info.get("bias") == "Bearish":
+                score += 10
 
         # Volume surge scoring
         if vol_ratio >= 2.0:
-            score += 20
-        elif vol_ratio >= 1.5:
             score += 15
-        elif vol_ratio >= 1.2:
+        elif vol_ratio >= 1.5:
             score += 10
-        elif vol_ratio >= 0.8:
+        elif vol_ratio >= 1.2:
             score += 5
 
         # Volatility & price sanity bonus
@@ -543,7 +629,7 @@ class DataEngine:
 
         score = max(10, min(100, score))
 
-        # Assign Grade (using standard unicode stars ★ to prevent font warnings)
+        # Assign Grade
         if score >= 80:
             grade = "A+"
             stars = "★★★★★"
@@ -583,6 +669,13 @@ class DataEngine:
             "trend_text": trend_text,
             "divergence": div_info.get("text", "—"),
             "weekly_trend": weekly_info.get("weekly_text", "▲ Bullish"),
+            "pattern": pattern_info.get("pattern", "—"),
+            "pattern_bias": pattern_info.get("bias", "Neutral"),
+            "dist_52w_high": extremes_52w.get("dist_high_str", "0.0%"),
+            "dist_52w_high_num": extremes_52w.get("dist_high_pct", 0.0),
+            "near_breakout": extremes_52w.get("near_breakout", False),
+            "high_52w": extremes_52w.get("high_52w", 0.0),
+            "low_52w": extremes_52w.get("low_52w", 0.0),
             "vol_ratio": round(vol_ratio, 2),
             "vol_ratio_str": f"{vol_ratio:.1f}x",
             "atr": round(atr, 2),
@@ -722,6 +815,9 @@ class DataEngine:
                             "vol_ratio": conf["vol_ratio_str"],
                             "divergence": conf["divergence"],
                             "weekly_trend": conf["weekly_trend"],
+                            "pattern": conf["pattern"],
+                            "dist_52w": conf["dist_52w_high"],
+                            "near_breakout": conf["near_breakout"],
                             "rsi_ma": f"{last.get('rsi_ma', 0):.2f}",
                             "fast_tl": f"{last.get('fast_tl', 0):.2f}",
                             "price": f"{last['close']:.2f}",

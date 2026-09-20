@@ -1,8 +1,8 @@
 # views/chart.py  –  Interactive Charts & Smart Risk Calculator Tab (Windows 11 Light)
 """
 Candlestick + volume chart with QQE signals, EMA 50/200, dynamic Support/Resistance,
-Fibonacci retracement levels, and an integrated Smart Risk & Position Size Calculator
-tailored for the CSE (LKR + fees + presets + trailing stop).
+Fibonacci retracement levels, live interactive Hover HUD, and an integrated Smart Risk &
+Position Size Calculator tailored for the CSE (LKR + fees + presets + steppers + trailing stop).
 """
 from __future__ import annotations
 
@@ -40,6 +40,7 @@ class ChartTab(ttk.Frame):
         self._current_symbol = ""
         self._current_data: dict | None = None
         self._last_calc: dict | None = None
+        self._chart_ohlcv: pd.DataFrame | None = None
         self._build_ui()
 
     def _build_ui(self):
@@ -114,19 +115,23 @@ class ChartTab(ttk.Frame):
 
         tk.Label(calc_row, text="Capital (LKR):", font=FONT_BODY, bg="#f0fdf4", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.calc_capital_var = tk.StringVar(value="500000")
-        ttk.Entry(calc_row, textvariable=self.calc_capital_var, width=11).pack(side="left", padx=(0, 8))
+        ttk.Entry(calc_row, textvariable=self.calc_capital_var, width=10).pack(side="left", padx=(0, 6))
 
         tk.Label(calc_row, text="Risk %:", font=FONT_BODY, bg="#f0fdf4", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.calc_risk_pct_var = tk.DoubleVar(value=2.0)
-        ttk.Spinbox(calc_row, from_=0.5, to=10.0, increment=0.5, textvariable=self.calc_risk_pct_var, width=5).pack(side="left", padx=(0, 8))
+        ttk.Spinbox(calc_row, from_=0.5, to=10.0, increment=0.5, textvariable=self.calc_risk_pct_var, width=5).pack(side="left", padx=(0, 6))
 
-        tk.Label(calc_row, text="Entry (LKR):", font=FONT_BODY, bg="#f0fdf4", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
+        tk.Label(calc_row, text="Entry:", font=FONT_BODY, bg="#f0fdf4", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 2))
+        tk.Button(calc_row, text="−", font=("Segoe UI", 8, "bold"), bg="#d1fae5", fg="#065f46", width=2, bd=0, cursor="hand2", command=lambda: self._step_entry(-0.10)).pack(side="left", padx=1)
         self.calc_entry_var = tk.StringVar(value="")
-        ttk.Entry(calc_row, textvariable=self.calc_entry_var, width=9).pack(side="left", padx=(0, 8))
+        ttk.Entry(calc_row, textvariable=self.calc_entry_var, width=8).pack(side="left", padx=1)
+        tk.Button(calc_row, text="+", font=("Segoe UI", 8, "bold"), bg="#d1fae5", fg="#065f46", width=2, bd=0, cursor="hand2", command=lambda: self._step_entry(0.10)).pack(side="left", padx=(1, 6))
 
-        tk.Label(calc_row, text="Stop-Loss (LKR):", font=FONT_BODY, bg="#f0fdf4", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
+        tk.Label(calc_row, text="Stop:", font=FONT_BODY, bg="#f0fdf4", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 2))
+        tk.Button(calc_row, text="−", font=("Segoe UI", 8, "bold"), bg="#fee2e2", fg="#991b1b", width=2, bd=0, cursor="hand2", command=lambda: self._step_stop(-0.10)).pack(side="left", padx=1)
         self.calc_stop_var = tk.StringVar(value="")
-        ttk.Entry(calc_row, textvariable=self.calc_stop_var, width=9).pack(side="left", padx=(0, 8))
+        ttk.Entry(calc_row, textvariable=self.calc_stop_var, width=8).pack(side="left", padx=1)
+        tk.Button(calc_row, text="+", font=("Segoe UI", 8, "bold"), bg="#fee2e2", fg="#991b1b", width=2, bd=0, cursor="hand2", command=lambda: self._step_stop(0.10)).pack(side="left", padx=(1, 8))
 
         ttk.Button(calc_row, text="⚡ Calculate Risk", command=self._on_calc_risk).pack(side="left", padx=3)
         ttk.Button(calc_row, text="🎯 Plot on Chart", command=self._on_plot_levels).pack(side="left", padx=3)
@@ -176,6 +181,16 @@ class ChartTab(ttk.Frame):
                                     highlightthickness=1, bd=0)
         self.chart_frame.pack(fill="both", expand=True)
 
+        # Dynamic Interactive Hover HUD Ribbon
+        self.hud_frame = tk.Frame(self.chart_frame, bg="#f8fafc", highlightbackground="#e2e8f0", highlightthickness=1)
+        self.hud_frame.pack(fill="x", side="top", padx=2, pady=(2, 0))
+        self.hud_label = tk.Label(
+            self.hud_frame,
+            text="💡 Move cursor over candlestick chart to inspect bar details (OHLCV, Volume & Pattern)",
+            font=("Segoe UI", 8), bg="#f8fafc", fg="#64748b", anchor="w", padx=8, pady=2
+        )
+        self.hud_label.pack(fill="x")
+
         self._placeholder = tk.Label(
             self.chart_frame,
             text="Select a CSE symbol and click 'Load Chart' to visualize candlesticks, signals, levels & Fibonacci",
@@ -202,7 +217,7 @@ class ChartTab(ttk.Frame):
         except Exception:
             pass
 
-    # ── Presets ─────────────────────────────────────────────────────────
+    # ── Presets & Steppers ──────────────────────────────────────────────
 
     def _set_capital_preset(self, val: int):
         self.calc_capital_var.set(str(val))
@@ -211,6 +226,24 @@ class ChartTab(ttk.Frame):
     def _set_risk_preset(self, val: float):
         self.calc_risk_pct_var.set(val)
         self._on_calc_risk(redraw=False)
+
+    def _step_entry(self, delta: float):
+        try:
+            val = float(self.calc_entry_var.get().replace(",", "").strip())
+            new_val = max(0.10, round(val + delta, 2))
+            self.calc_entry_var.set(f"{new_val:.2f}")
+            self._on_calc_risk(redraw=False)
+        except Exception:
+            pass
+
+    def _step_stop(self, delta: float):
+        try:
+            val = float(self.calc_stop_var.get().replace(",", "").strip())
+            new_val = max(0.10, round(val + delta, 2))
+            self.calc_stop_var.set(f"{new_val:.2f}")
+            self._on_calc_risk(redraw=False)
+        except Exception:
+            pass
 
     # ── Public method for cross-tab navigation ──────────────────────────
 
@@ -301,6 +334,7 @@ class ChartTab(ttk.Frame):
         # Build OHLCV DataFrame for mplfinance
         ohlcv = df[["open", "high", "low", "close", "volume"]].copy()
         ohlcv.index = pd.DatetimeIndex(ohlcv.index)
+        self._chart_ohlcv = ohlcv
 
         # Crisp Windows 11 Light Theme for Matplotlib
         mc = mpf.make_marketcolors(
@@ -439,14 +473,15 @@ class ChartTab(ttk.Frame):
 
         fig, axes = mpf.plot(ohlcv, **plot_kwargs)
 
-        # Title subtitle with Grade (clean ASCII text to prevent DejaVu Sans glyph warnings)
+        # Title subtitle with Grade & Breakout & Pattern
         grade = confluence.get("grade", "A")
         stars = confluence.get("stars", "★★★★")
         score = confluence.get("score", 0)
         vol = confluence.get("vol_ratio_str", "1.0x")
         weekly = confluence.get("weekly_trend", "Bullish")
-        div = confluence.get("divergence", "—")
-        grade_text = f"Grade: {grade} {stars} | Score: {score}/100 | Vol: {vol} | Weekly: {weekly} | Div: {div}"
+        breakout = "Near 52W High" if confluence.get("near_breakout") else f"52W High: {confluence.get('dist_52w_high', '')}"
+        pattern = confluence.get("pattern", "—")
+        grade_text = f"Grade: {grade} {stars} ({score}/100) | Vol: {vol} | Weekly: {weekly} | {breakout} | Pattern: {pattern}"
         fig.suptitle(f"{symbol}  —  {grade_text}", fontsize=10, fontweight="bold", color="#0f172a", y=0.98)
 
         # Embed in tkinter
@@ -454,13 +489,38 @@ class ChartTab(ttk.Frame):
         self._canvas.draw()
         self._canvas.get_tk_widget().pack(fill="both", expand=True)
 
+        # Connect Interactive Crosshair / Hover HUD Event
+        self._canvas.mpl_connect("motion_notify_event", self._on_chart_hover)
+
         self._toolbar = NavigationToolbar2Tk(self._canvas, self.chart_frame)
         self._toolbar.config(background="#ffffff")
         self._toolbar.update()
 
         self.app.stop_progress()
-        self.app.set_status(f"Chart loaded: {symbol} ({len(ohlcv)} bars) | Confluence: {score}/100 | Weekly: {weekly}")
+        self.app.set_status(f"Chart loaded: {symbol} ({len(ohlcv)} bars) | Confluence: {score}/100 | Pattern: {pattern}")
         plt.close(fig)
+
+    # ── Interactive Hover HUD ───────────────────────────────────────────
+
+    def _on_chart_hover(self, event):
+        if event.xdata is None or self._chart_ohlcv is None or self._chart_ohlcv.empty:
+            return
+        try:
+            idx = int(round(event.xdata))
+            if 0 <= idx < len(self._chart_ohlcv):
+                row = self._chart_ohlcv.iloc[idx]
+                dt_str = self._chart_ohlcv.index[idx].strftime("%Y-%m-%d")
+                o = float(row["open"])
+                h = float(row["high"])
+                l = float(row["low"])
+                c = float(row["close"])
+                v = float(row["volume"])
+                chg = ((c - o) / o) * 100.0 if o > 0 else 0.0
+                chg_sign = "+" if chg >= 0 else ""
+                txt = f"📅 {dt_str}   O: {o:.2f}   H: {h:.2f}   L: {l:.2f}   C: {c:.2f} ({chg_sign}{chg:.2f}%)   Vol: {int(v):,}"
+                self.hud_label.config(text=txt, fg="#0284c7" if chg >= 0 else "#c42b1c")
+        except Exception:
+            pass
 
     # ── Risk Calculator Logic ───────────────────────────────────────────
 
