@@ -32,6 +32,16 @@ WIN11_HEADER_BG = "#f8fafc"     # Table header background
 WIN11_SELECT_BG = "#e0f2fe"     # Selection blue
 WIN11_SELECT_FG = "#0369a1"
 
+# Signal Confluence Grades
+GRADE_A_PLUS = "#059669"        # Emerald - Strong High Conviction
+GRADE_A_PLUS_BG = "#ecfdf5"     # Soft Emerald tint
+GRADE_A = "#0284c7"             # Sky Blue - Solid Setup
+GRADE_A_BG = "#f0f9ff"          # Soft Sky tint
+GRADE_B = "#d97706"             # Amber - Moderate Setup
+GRADE_B_BG = "#fffbeb"          # Soft Amber tint
+GRADE_C = "#e11d48"             # Rose - Low Confluence / Warning
+GRADE_C_BG = "#fff1f2"          # Soft Rose tint
+
 # Typography
 FONT_FAMILY = "Segoe UI"
 FONT_SEMIBOLD = "Segoe UI Semibold"

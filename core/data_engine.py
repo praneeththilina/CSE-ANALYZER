@@ -264,6 +264,236 @@ class DataEngine:
                 continue
         return items
 
+    # ── Confluence & Risk Decision Support ─────────────────────────────
+
+    def compute_confluence(self, df: pd.DataFrame, signal: int = 1) -> Dict[str, Any]:
+        """
+        Computes multi-indicator confluence score (0-100), quality grade,
+        support/resistance levels, and suggested trade parameters.
+        """
+        if df.empty or len(df) < 20:
+            return {
+                "score": 50,
+                "grade": "B",
+                "stars": "⭐⭐⭐",
+                "trend_status": "Neutral",
+                "trend_text": "—",
+                "vol_ratio": 1.0,
+                "vol_ratio_str": "1.0x",
+                "atr": 1.0,
+                "ema50": 0.0,
+                "ema200": 0.0,
+                "support1": 0.0,
+                "support2": 0.0,
+                "resistance1": 0.0,
+                "resistance2": 0.0,
+                "suggested_stop": 0.0,
+                "target1": 0.0,
+                "target2": 0.0,
+            }
+
+        close = df["close"]
+        high = df["high"]
+        low = df["low"]
+        volume = df["volume"]
+        c_last = float(close.iloc[-1])
+
+        # 1. Trend Analysis (EMA 50 & EMA 200)
+        ema50 = close.ewm(span=min(50, len(close)), adjust=False).mean()
+        ema200 = close.ewm(span=min(200, len(close)), adjust=False).mean() if len(close) >= 50 else ema50
+        e50_last = float(ema50.iloc[-1])
+        e200_last = float(ema200.iloc[-1])
+
+        is_above_200 = c_last >= e200_last
+        is_above_50 = c_last >= e50_last
+        is_golden_cross = e50_last >= e200_last
+
+        # 2. Volume Analysis (20-day SMA)
+        vol_window = min(20, len(volume))
+        vol_ma20 = volume.rolling(vol_window).mean()
+        avg_vol = float(vol_ma20.iloc[-1]) if not np.isnan(vol_ma20.iloc[-1]) else 1.0
+        v_last = float(volume.iloc[-1])
+        vol_ratio = (v_last / avg_vol) if avg_vol > 0 else 1.0
+
+        # 3. ATR (Average True Range - 14 period)
+        prev_close = close.shift(1)
+        tr1 = high - low
+        tr2 = (high - prev_close).abs()
+        tr3 = (low - prev_close).abs()
+        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+        atr_series = tr.rolling(min(14, len(tr))).mean()
+        atr = float(atr_series.iloc[-1]) if not np.isnan(atr_series.iloc[-1]) and atr_series.iloc[-1] > 0 else max(c_last * 0.02, 0.5)
+
+        # 4. Support and Resistance levels
+        s1 = float(low.tail(min(20, len(low))).min())
+        s2 = float(low.tail(min(50, len(low))).min())
+        r1 = float(high.tail(min(20, len(high))).max())
+        r2 = float(high.tail(min(250, len(high))).max())
+
+        # 5. Confluence Scoring (0 - 100)
+        score = 25  # Base score for valid crossover signal
+
+        # Trend scoring
+        if signal == 1:  # LONG
+            trend_text = "▲ Bullish" if is_above_200 else "▼ Below 200 EMA"
+            trend_status = "Bullish" if is_above_200 else "Counter-Trend"
+            if is_above_200:
+                score += 25
+            elif is_above_50:
+                score += 15
+            if is_golden_cross:
+                score += 10
+        else:  # SHORT
+            trend_text = "▼ Bearish" if not is_above_200 else "▲ Above 200 EMA"
+            trend_status = "Bearish" if not is_above_200 else "Counter-Trend"
+            if not is_above_200:
+                score += 25
+            elif not is_above_50:
+                score += 15
+            if not is_golden_cross:
+                score += 10
+
+        # Volume surge scoring
+        if vol_ratio >= 2.0:
+            score += 25
+        elif vol_ratio >= 1.5:
+            score += 20
+        elif vol_ratio >= 1.2:
+            score += 15
+        elif vol_ratio >= 0.8:
+            score += 10
+
+        # Volatility & price sanity bonus
+        if 0 < (atr / c_last) < 0.08:
+            score += 15
+        else:
+            score += 5
+
+        score = max(10, min(100, score))
+
+        # Assign Grade
+        if score >= 80:
+            grade = "A+"
+            stars = "⭐⭐⭐⭐⭐"
+        elif score >= 65:
+            grade = "A"
+            stars = "⭐⭐⭐⭐"
+        elif score >= 50:
+            grade = "B"
+            stars = "⭐⭐⭐"
+        else:
+            grade = "C"
+            stars = "⭐⭐"
+
+        # Suggested Stop Loss and Targets
+        if signal == 1:  # LONG
+            suggested_stop = max(round(c_last - 1.5 * atr, 2), round(c_last * 0.90, 2))
+            if suggested_stop >= c_last:
+                suggested_stop = round(c_last * 0.95, 2)
+            risk_unit = c_last - suggested_stop
+            target1 = round(c_last + 1.5 * risk_unit, 2)
+            target2 = round(c_last + 2.5 * risk_unit, 2)
+        else:  # SHORT
+            suggested_stop = min(round(c_last + 1.5 * atr, 2), round(c_last * 1.10, 2))
+            if suggested_stop <= c_last:
+                suggested_stop = round(c_last * 1.05, 2)
+            risk_unit = suggested_stop - c_last
+            target1 = round(max(0.1, c_last - 1.5 * risk_unit), 2)
+            target2 = round(max(0.1, c_last - 2.5 * risk_unit), 2)
+
+        return {
+            "score": score,
+            "grade": grade,
+            "stars": stars,
+            "trend_status": trend_status,
+            "trend_text": trend_text,
+            "vol_ratio": round(vol_ratio, 2),
+            "vol_ratio_str": f"{vol_ratio:.1f}x",
+            "atr": round(atr, 2),
+            "ema50": round(e50_last, 2),
+            "ema200": round(e200_last, 2),
+            "support1": round(s1, 2),
+            "support2": round(s2, 2),
+            "resistance1": round(r1, 2),
+            "resistance2": round(r2, 2),
+            "suggested_stop": suggested_stop,
+            "target1": target1,
+            "target2": target2,
+        }
+
+    def calculate_trade_risk(
+        self,
+        capital: float = 500000.0,
+        risk_pct: float = 2.0,
+        entry: float = 100.0,
+        stop_loss: float = 95.0,
+        fee_pct: float = 1.12,
+    ) -> Dict[str, Any]:
+        """
+        Calculates position sizing and risk/reward parameters for CSE trading
+        accounting for Sri Lankan broker fees and regulatory cess (~1.12% roundtrip).
+        """
+        import math
+        capital = max(1000.0, float(capital))
+        risk_pct = max(0.1, min(100.0, float(risk_pct)))
+        entry = max(0.1, float(entry))
+        stop_loss = float(stop_loss)
+
+        risk_amount = capital * (risk_pct / 100.0)
+        risk_per_share = abs(entry - stop_loss)
+        if risk_per_share <= 0:
+            risk_per_share = entry * 0.05  # fallback 5%
+
+        shares = int(math.floor(risk_amount / risk_per_share))
+        max_possible_shares = int(capital // entry)
+        shares = max(1, min(shares, max_possible_shares))
+
+        total_cost = round(shares * entry, 2)
+        half_fee_rate = (fee_pct / 100.0) / 2.0  # 0.56% on buy, 0.56% on sell
+        buy_fee = total_cost * half_fee_rate
+
+        is_long = entry >= stop_loss
+        if is_long:
+            t1 = round(entry + 1.5 * risk_per_share, 2)
+            t2 = round(entry + 2.5 * risk_per_share, 2)
+        else:
+            t1 = round(max(0.1, entry - 1.5 * risk_per_share), 2)
+            t2 = round(max(0.1, entry - 2.5 * risk_per_share), 2)
+
+        sell_val_t1 = shares * t1
+        sell_fee_t1 = sell_val_t1 * half_fee_rate
+        net_profit_t1 = round((sell_val_t1 - total_cost) - (buy_fee + sell_fee_t1), 2)
+
+        sell_val_t2 = shares * t2
+        sell_fee_t2 = sell_val_t2 * half_fee_rate
+        net_profit_t2 = round((sell_val_t2 - total_cost) - (buy_fee + sell_fee_t2), 2)
+
+        sell_val_sl = shares * stop_loss
+        sell_fee_sl = sell_val_sl * half_fee_rate
+        net_loss_sl = round(abs(total_cost - sell_val_sl) + (buy_fee + sell_fee_sl), 2)
+
+        est_roundtrip_fee = round(buy_fee + (total_cost * half_fee_rate), 2)
+
+        return {
+            "capital": capital,
+            "risk_pct": risk_pct,
+            "risk_amount": round(risk_amount, 2),
+            "entry": entry,
+            "stop_loss": stop_loss,
+            "risk_per_share": round(risk_per_share, 2),
+            "shares": shares,
+            "total_cost": total_cost,
+            "capital_allocated_pct": round((total_cost / capital) * 100.0, 1),
+            "roundtrip_fee": est_roundtrip_fee,
+            "target1": t1,
+            "net_profit_t1": net_profit_t1,
+            "target2": t2,
+            "net_profit_t2": net_profit_t2,
+            "net_loss_sl": net_loss_sl,
+            "rr_ratio_t1": "1:1.5",
+            "rr_ratio_t2": "1:2.5",
+        }
+
     # ── QQE scanning ────────────────────────────────────────────────────
 
     def run_qqe_scan(
@@ -273,7 +503,7 @@ class DataEngine:
         qqe_factor: float = 4.238,
         threshold: int = 10,
     ) -> List[Dict[str, Any]]:
-        """Run QQE on all enabled symbols and return signal rows."""
+        """Run QQE on all enabled symbols and return enriched signal rows."""
         con = self.connect()
         try:
             enabled = stocks.fetch_symbols_from_db(con, only_enabled=True)
@@ -298,21 +528,38 @@ class DataEngine:
                     last = df.iloc[-1]
                     sig = int(last["signal"])
                     if sig != 0:
+                        # Compute full confluence metrics using historical bars
+                        bars_df = self.get_bars(sym)
+                        conf = self.compute_confluence(bars_df, sig)
+
                         results.append({
                             "symbol": sym,
                             "industry": ind_map.get(sym, ""),
                             "signal": sig,
                             "signal_text": "LONG" if sig == 1 else "SHORT",
+                            "grade": conf["grade"],
+                            "stars": conf["stars"],
+                            "score": conf["score"],
+                            "trend": conf["trend_text"],
+                            "vol_ratio": conf["vol_ratio_str"],
                             "rsi_ma": f"{last.get('rsi_ma', 0):.2f}",
                             "fast_tl": f"{last.get('fast_tl', 0):.2f}",
                             "price": f"{last['close']:.2f}",
                             "date": df.index[-1].strftime("%Y-%m-%d"),
+                            "atr": conf["atr"],
+                            "stop_loss": conf["suggested_stop"],
+                            "target1": conf["target1"],
+                            "target2": conf["target2"],
+                            "support": conf["support1"],
+                            "resistance": conf["resistance1"],
                         })
                 except Exception:
                     continue
             return results
         finally:
             con.close()
+
+    scan_qqe_signals = run_qqe_scan
 
     # ── Daily scan (bars + signals) ─────────────────────────────────────
 

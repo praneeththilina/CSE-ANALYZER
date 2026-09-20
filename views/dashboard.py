@@ -112,14 +112,16 @@ class DashboardTab(ttk.Frame):
         signals_frame = ttk.LabelFrame(content, text="  🔔 Recent Signals  ", padding=8)
         signals_frame.grid(row=0, column=2, padx=(6, 0), pady=4, sticky="nsew")
 
-        cols_sig = ("date", "symbol", "direction")
+        cols_sig = ("date", "symbol", "direction", "rating")
         self.tree_signals = SortableTreeview(signals_frame, columns=cols_sig, height=14)
         self.tree_signals.heading("date", text="Date")
         self.tree_signals.heading("symbol", text="Symbol")
         self.tree_signals.heading("direction", text="Signal")
-        self.tree_signals.column("date", width=95, minwidth=80)
-        self.tree_signals.column("symbol", width=105, minwidth=80)
-        self.tree_signals.column("direction", width=85, minwidth=65, anchor="center")
+        self.tree_signals.heading("rating", text="Rating")
+        self.tree_signals.column("date", width=85, minwidth=75)
+        self.tree_signals.column("symbol", width=95, minwidth=75)
+        self.tree_signals.column("direction", width=75, minwidth=60, anchor="center")
+        self.tree_signals.column("rating", width=75, minwidth=60, anchor="center")
         self.tree_signals.pack(fill="both", expand=True)
         self.tree_signals.bind("<Double-1>", lambda e: self._on_double_click(self.tree_signals))
 
@@ -162,8 +164,9 @@ class DashboardTab(ttk.Frame):
         for sig in signals:
             direction = "▲ LONG" if sig["signal"] == 1 else "▼ SHORT"
             tag = "long" if sig["signal"] == 1 else "short"
+            rating = "⭐⭐⭐⭐" if sig["signal"] == 1 else "⭐⭐⭐"
             self.tree_signals.insert("", "end", values=(
-                sig["date"], sig["symbol"], direction
+                sig["date"], sig["symbol"], direction, rating
             ), tags=(tag,))
 
     def _apply_movers(self, gainers: list[dict], losers: list[dict]):

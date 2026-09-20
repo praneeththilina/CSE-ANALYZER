@@ -148,6 +148,13 @@ class PortfolioTab(ttk.Frame):
     def on_tab_shown(self):
         self.load_data()
 
+    def prefill(self, symbol: str, price: float, qty: int = 100):
+        """Pre-fills the Add Position form with calculated trade details."""
+        self.sym_var.set(symbol)
+        self.side_var.set("BUY")
+        self.price_var.set(f"{float(price):.2f}")
+        self.qty_var.set(str(int(qty)))
+
     # ── Data Loading ────────────────────────────────────────────────────
 
     def load_data(self):

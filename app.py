@@ -74,10 +74,15 @@ class MainApp(ttk.Frame):
         except Exception:
             pass
 
-    def switch_to_chart(self, symbol: str):
-        """Switch to the Charts tab and load a specific symbol."""
+    def switch_to_chart(self, symbol: str, entry: float | None = None, stop_loss: float | None = None):
+        """Switch to the Charts tab and load a specific symbol with optional trade levels."""
         self.notebook.select(self.chart)
-        self.chart.load_symbol(symbol)
+        self.chart.load_symbol(symbol, entry=entry, stop_loss=stop_loss)
+
+    def switch_to_portfolio(self, symbol: str, price: float, qty: int):
+        """Switch to Portfolio tab and pre-fill trade details."""
+        self.notebook.select(self.portfolio)
+        self.portfolio.prefill(symbol, price, qty)
 
     def set_status(self, message: str):
         self.status_bar.set_message(message)
