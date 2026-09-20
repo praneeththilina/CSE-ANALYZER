@@ -44,58 +44,59 @@ class BacktestTab(ttk.Frame):
         # ── Configuration Colorful Form Card ────────────────────────────
         self.config_card = FormCard(
             self,
-            title="Strategy & Risk Management Settings",
-            accent_color="#d97706",
-            bg_color="#fffbeb",
-            border_color="#fcd34d",
+            title="CSE Spot Equity Strategy & Risk Management Simulator",
+            accent_color="#059669",
+            bg_color="#f0fdf4",
+            border_color="#86efac",
             icon="⚡",
         )
         self.config_card.pack(fill="x", pady=(0, 10))
 
-        row1 = tk.Frame(self.config_card.body, bg="#fffbeb")
+        row1 = tk.Frame(self.config_card.body, bg="#f0fdf4")
         row1.pack(fill="x", pady=(0, 6))
 
-        tk.Label(row1, text="Symbol:", font=FONT_BODY, bg="#fffbeb", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
+        tk.Label(row1, text="Symbol:", font=FONT_BODY, bg="#f0fdf4", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.sym_var = tk.StringVar()
-        self.sym_combo = ttk.Combobox(row1, textvariable=self.sym_var, width=15)
-        self.sym_combo.pack(side="left", padx=(0, 16))
+        self.sym_combo = ttk.Combobox(row1, textvariable=self.sym_var, width=14)
+        self.sym_combo.pack(side="left", padx=(0, 12))
 
-        tk.Label(row1, text="Capital (LKR):", font=FONT_BODY, bg="#fffbeb", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
-        self.capital_var = tk.StringVar(value="100000")
-        ttk.Entry(row1, textvariable=self.capital_var, width=10).pack(side="left", padx=(0, 16))
+        tk.Label(row1, text="Capital (LKR):", font=FONT_BODY, bg="#f0fdf4", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
+        self.capital_var = tk.StringVar(value="500000")
+        ttk.Entry(row1, textvariable=self.capital_var, width=9).pack(side="left", padx=(0, 12))
 
-        tk.Label(row1, text="Comm %:", font=FONT_BODY, bg="#fffbeb", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
-        self.comm_var = tk.StringVar(value="0.1")
-        ttk.Entry(row1, textvariable=self.comm_var, width=6).pack(side="left", padx=(0, 16))
+        tk.Label(row1, text="CSE Fees %:", font=FONT_BODY, bg="#f0fdf4", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
+        self.comm_var = tk.StringVar(value="1.12")
+        ttk.Entry(row1, textvariable=self.comm_var, width=5).pack(side="left", padx=(0, 12))
 
-        tk.Label(row1, text="Stop Loss %:", font=FONT_BODY, bg="#fffbeb", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
-        self.sl_var = tk.StringVar(value="0")
-        ttk.Entry(row1, textvariable=self.sl_var, width=6).pack(side="left", padx=(0, 16))
+        tk.Label(row1, text="Allocation %:", font=FONT_BODY, bg="#f0fdf4", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
+        self.alloc_var = tk.IntVar(value=100)
+        ttk.Spinbox(row1, from_=10, to=100, increment=10, textvariable=self.alloc_var, width=4).pack(side="left", padx=(0, 12))
 
-        tk.Label(row1, text="Take Profit %:", font=FONT_BODY, bg="#fffbeb", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
-        self.tp_var = tk.StringVar(value="0")
-        ttk.Entry(row1, textvariable=self.tp_var, width=6).pack(side="left")
+        tk.Label(row1, text="Strategy:", font=FONT_BODY, bg="#f0fdf4", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
+        self.strat_var = tk.StringVar(value="All Spot Setups")
+        strat_cb = ttk.Combobox(row1, textvariable=self.strat_var, width=17, state="readonly")
+        strat_cb["values"] = ["All Spot Setups", "🚀 Breakout BUY", "💎 Pullback BUY", "⚡ Golden Cross BUY"]
+        strat_cb.pack(side="left")
 
-        row2 = tk.Frame(self.config_card.body, bg="#fffbeb")
+        row2 = tk.Frame(self.config_card.body, bg="#f0fdf4")
         row2.pack(fill="x")
 
-        tk.Label(row2, text="RSI Period:", font=FONT_BODY, bg="#fffbeb", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
-        self.rsi_var = tk.IntVar(value=14)
-        ttk.Spinbox(row2, from_=2, to=50, textvariable=self.rsi_var, width=5).pack(side="left", padx=(0, 16))
+        tk.Label(row2, text="Target 1 (R:R):", font=FONT_BODY, bg="#f0fdf4", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
+        self.t1_var = tk.DoubleVar(value=1.5)
+        ttk.Spinbox(row2, from_=1.0, to=5.0, increment=0.5, textvariable=self.t1_var, width=5).pack(side="left", padx=(0, 14))
 
-        tk.Label(row2, text="SF:", font=FONT_BODY, bg="#fffbeb", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
-        self.sf_var = tk.IntVar(value=5)
-        ttk.Spinbox(row2, from_=1, to=20, textvariable=self.sf_var, width=5).pack(side="left", padx=(0, 16))
+        tk.Label(row2, text="Target 2 (R:R):", font=FONT_BODY, bg="#f0fdf4", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
+        self.t2_var = tk.DoubleVar(value=2.5)
+        ttk.Spinbox(row2, from_=1.5, to=8.0, increment=0.5, textvariable=self.t2_var, width=5).pack(side="left", padx=(0, 14))
 
-        tk.Label(row2, text="QQE Factor:", font=FONT_BODY, bg="#fffbeb", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
-        self.qqe_var = tk.DoubleVar(value=4.238)
-        ttk.Entry(row2, textvariable=self.qqe_var, width=7).pack(side="left", padx=(0, 16))
+        tk.Label(row2, text="Stop Loss ATR:", font=FONT_BODY, bg="#f0fdf4", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
+        self.sl_var = tk.DoubleVar(value=1.5)
+        ttk.Spinbox(row2, from_=1.0, to=4.0, increment=0.5, textvariable=self.sl_var, width=5).pack(side="left", padx=(0, 14))
 
-        tk.Label(row2, text="Threshold:", font=FONT_BODY, bg="#fffbeb", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
-        self.thresh_var = tk.IntVar(value=10)
-        ttk.Spinbox(row2, from_=1, to=50, textvariable=self.thresh_var, width=5).pack(side="left", padx=(0, 16))
+        self.trail_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(row2, text="Trailing Stop (2.0 ATR)", variable=self.trail_var).pack(side="left", padx=(0, 16))
 
-        ttk.Button(row2, text="⚡ Run Backtest", command=self._run_backtest,
+        ttk.Button(row2, text="⚡ Run Spot Backtest", command=self._run_backtest,
                    style="Accent.TButton").pack(side="right", padx=4)
 
         # ── Stats Cards ─────────────────────────────────────────────────
@@ -198,19 +199,25 @@ class BacktestTab(ttk.Frame):
         if not symbol:
             return
 
-        self.app.set_status(f"Running backtest on {symbol}...")
+        self.app.set_status(f"Running spot equity backtest on {symbol}...")
         self.app.start_progress()
 
+        strat_map = {
+            "All Spot Setups": "all",
+            "🚀 Breakout BUY": "breakout",
+            "💎 Pullback BUY": "pullback",
+            "⚡ Golden Cross BUY": "golden_cross",
+        }
         params = {
             "symbol": symbol,
-            "rsi_period": self.rsi_var.get(),
-            "sf": self.sf_var.get(),
-            "qqe_factor": self.qqe_var.get(),
-            "threshold": self.thresh_var.get(),
-            "initial_capital": float(self.capital_var.get()),
-            "commission_pct": float(self.comm_var.get()),
-            "stop_loss_pct": float(self.sl_var.get()),
-            "take_profit_pct": float(self.tp_var.get()),
+            "initial_capital": float(self.capital_var.get().replace(",", "").strip() or 500000),
+            "commission_pct": float(self.comm_var.get().replace(",", "").strip() or 1.12),
+            "allocation_pct": float(self.alloc_var.get()),
+            "strategy": strat_map.get(self.strat_var.get(), "all"),
+            "target1_r": float(self.t1_var.get()),
+            "target2_r": float(self.t2_var.get()),
+            "sl_atr_mult": float(self.sl_var.get()),
+            "use_trailing": self.trail_var.get(),
         }
 
         ThreadedTask(
@@ -249,7 +256,7 @@ class BacktestTab(ttk.Frame):
                 self.trade_tree.insert("", "end", values=(
                     t.get("entry_date", ""),
                     t.get("exit_date", ""),
-                    t.get("side", ""),
+                    "🟢 BUY",
                     f"{float(t.get('entry_price', 0)):.2f}",
                     f"{float(t.get('exit_price', 0)):.2f}",
                     f"{float(t.get('return_pct', 0)):+.2f}%",
@@ -258,7 +265,7 @@ class BacktestTab(ttk.Frame):
                 ), tags=(tag,))
 
         self.app.stop_progress()
-        self.app.set_status(f"Backtest complete: {stats.get('Total Trades', 0)} trades")
+        self.app.set_status(f"Spot backtest complete: {stats.get('Total Trades', 0)} closed trades | Return: {ret_val}%")
 
     def _render_equity_curve(self, equity_df: pd.DataFrame):
         if self._eq_canvas:
@@ -268,7 +275,10 @@ class BacktestTab(ttk.Frame):
         fig = Figure(figsize=(10, 3), dpi=90, facecolor="#ffffff")
         ax = fig.add_subplot(111)
 
-        dates = pd.to_datetime(equity_df["date"])
+        if "date" in equity_df.columns:
+            dates = pd.to_datetime(equity_df["date"])
+        else:
+            dates = pd.to_datetime(equity_df.index)
         equity = equity_df["equity"].astype(float)
 
         ax.fill_between(dates, equity, alpha=0.15, color="#0067c0")

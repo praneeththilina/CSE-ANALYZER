@@ -45,7 +45,7 @@ class MainApp(ttk.Frame):
         self.settings = SettingsTab(self.notebook, self)
 
         self.notebook.add(self.dashboard, text="  📊 Dashboard  ")
-        self.notebook.add(self.scanner, text="  🔍 QQE Scanner  ")
+        self.notebook.add(self.scanner, text="  🔍 Stock Scanner  ")
         self.notebook.add(self.chart, text="  📈 Charts  ")
         self.notebook.add(self.watchlist, text="  ⭐ Watchlist  ")
         self.notebook.add(self.portfolio, text="  💼 Portfolio  ")

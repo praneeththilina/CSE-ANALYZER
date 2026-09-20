@@ -402,6 +402,10 @@ class SortableTreeview(ttk.Treeview):
             self._sort_reverse[col] = False
             self.heading(col, command=lambda c=col: self._sort_by(c))
 
+    def clear(self):
+        """Clears all rows from the treeview."""
+        self.delete(*self.get_children())
+
     def _sort_by(self, col: str):
         data = [(self.set(child, col), child) for child in self.get_children("")]
 

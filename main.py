@@ -11,10 +11,19 @@ import importlib.util
 import logging
 import os
 import sys
+import warnings
 from pathlib import Path
 
-# Suppress matplotlib font fallback warnings
+# Suppress matplotlib font fallback / glyph missing warnings
 logging.getLogger("matplotlib").setLevel(logging.ERROR)
+warnings.filterwarnings("ignore", category=UserWarning, module="matplotlib")
+warnings.filterwarnings("ignore", message=".*Glyph.*")
+
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 # ── Resolve directories ────────────────────────────────────────────────
 _THIS_DIR = Path(__file__).resolve().parent

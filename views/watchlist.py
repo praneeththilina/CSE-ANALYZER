@@ -114,20 +114,28 @@ class WatchlistTab(ttk.Frame):
         table_frame = ttk.Frame(self)
         table_frame.pack(fill="both", expand=True, pady=(0, 8))
 
-        cols = [
-            ("symbol", "Symbol", 120),
-            ("industry", "Industry / Sector", 150),
-            ("price", "Price (LKR)", 95),
-            ("day_chg", "Day Chg %", 90),
-            ("grade", "Confluence", 95),
-            ("trend", "Trend", 120),
-            ("alert_high", "Alert High (≥)", 105),
-            ("alert_low", "Alert Low (≤)", 105),
-            ("alert_status", "Alert Status", 150),
-            ("notes", "Notes & Strategy", 220),
+        col_defs = [
+            ("symbol", "Symbol", 110, "w"),
+            ("industry", "Industry / Sector", 140, "w"),
+            ("price", "Price (LKR)", 95, "e"),
+            ("day_chg", "Day Chg %", 90, "e"),
+            ("grade", "Confluence", 95, "center"),
+            ("trend", "Trend", 120, "w"),
+            ("alert_high", "Alert High (≥)", 105, "e"),
+            ("alert_low", "Alert Low (≤)", 105, "e"),
+            ("alert_status", "Alert Status", 140, "w"),
+            ("notes", "Notes & Strategy", 200, "w"),
         ]
-        self.tree = SortableTreeview(table_frame, cols)
-        self.tree.pack(fill="both", expand=True)
+        col_ids = [c[0] for c in col_defs]
+        self.tree = SortableTreeview(table_frame, columns=col_ids, height=18)
+        for cid, chead, cwidth, canchor in col_defs:
+            self.tree.heading(cid, text=chead)
+            self.tree.column(cid, width=cwidth, minwidth=60, anchor=canchor)
+
+        scroller = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=scroller.set)
+        self.tree.pack(side="left", fill="both", expand=True)
+        scroller.pack(side="right", fill="y")
 
         # Tree tags for color highlighting
         self.tree.tag_configure("positive", foreground=WIN11_GREEN)
@@ -197,7 +205,7 @@ class WatchlistTab(ttk.Frame):
     def _on_data_loaded(self, items: List[Dict[str, Any]]):
         self.app.stop_progress()
         self._watchlist_items = items
-        self.tree.clear()
+        self.tree.delete(*self.tree.get_children())
 
         high_hits = 0
         low_hits = 0

@@ -1,7 +1,7 @@
 # views/dashboard.py  –  Market Dashboard Tab (Windows 11 Light - Instant Cohesive Load)
 """
 Landing screen showing market overview: summary cards, top gainers/losers,
-recent QQE signals, and quick stats styled for Windows 11 Fluent Light.
+recent signals, and quick stats styled for Windows 11 Fluent Light.
 All data is populated synchronously from the local SQLite database on construction
 so all elements appear simultaneously without pop-in or right-to-left lag.
 """
@@ -52,7 +52,7 @@ class DashboardTab(ttk.Frame):
         self.card_symbols = InfoCard(cards_frame, "Total Symbols", "—", accent_color="#0284c7", icon="🌐")
         self.card_symbols.grid(row=0, column=0, padx=4, pady=2, sticky="nsew")
 
-        self.card_enabled = InfoCard(cards_frame, "Enabled (QQE)", "—", accent_color="#4f46e5", icon="⚡")
+        self.card_enabled = InfoCard(cards_frame, "Active Equities", "—", accent_color="#4f46e5", icon="⚡")
         self.card_enabled.grid(row=0, column=1, padx=4, pady=2, sticky="nsew")
 
         self.card_bars = InfoCard(cards_frame, "Total Bars", "—", accent_color="#7c3aed", icon="📊")
@@ -61,10 +61,10 @@ class DashboardTab(ttk.Frame):
         self.card_last_bar = InfoCard(cards_frame, "Last Bar Date", "—", accent_color="#d97706", icon="📅")
         self.card_last_bar.grid(row=0, column=3, padx=4, pady=2, sticky="nsew")
 
-        self.card_long_7d = InfoCard(cards_frame, "Long Signals (7d)", "—", accent_color="#059669", icon="▲")
+        self.card_long_7d = InfoCard(cards_frame, "BUY Signals (7d)", "—", accent_color="#059669", icon="▲")
         self.card_long_7d.grid(row=0, column=4, padx=4, pady=2, sticky="nsew")
 
-        self.card_short_7d = InfoCard(cards_frame, "Short Signals (7d)", "—", accent_color="#e11d48", icon="▼")
+        self.card_short_7d = InfoCard(cards_frame, "EXIT Alerts (7d)", "—", accent_color="#e11d48", icon="▼")
         self.card_short_7d.grid(row=0, column=5, padx=4, pady=2, sticky="nsew")
 
         # ── Main content: Gainers/Losers + Recent Signals ───────────────
@@ -128,8 +128,8 @@ class DashboardTab(ttk.Frame):
         # Tag styles for tables
         self.tree_gainers.tag_configure("gain", foreground=WIN11_GREEN)
         self.tree_losers.tag_configure("loss", foreground=WIN11_RED)
-        self.tree_signals.tag_configure("long", foreground=WIN11_GREEN)
-        self.tree_signals.tag_configure("short", foreground=WIN11_RED)
+        self.tree_signals.tag_configure("buy", foreground=WIN11_GREEN)
+        self.tree_signals.tag_configure("exit", foreground=WIN11_RED)
 
     # ── Instant Synchronous Local DB Load ───────────────────────────────
 
@@ -156,14 +156,16 @@ class DashboardTab(ttk.Frame):
         self.card_enabled.set(str(s.get("symbols_enabled", 0)))
         self.card_bars.set(fmt_volume(s.get("bars_total", 0)))
         self.card_last_bar.set(str(s.get("last_bar_date", "—")))
-        self.card_long_7d.set(str(s.get("long_7d", 0)), color=WIN11_GREEN)
-        self.card_short_7d.set(str(s.get("short_7d", 0)), color=WIN11_RED)
+        b_cnt = s.get("buy_7d", s.get("long_7d", 0))
+        e_cnt = s.get("exit_7d", s.get("short_7d", 0))
+        self.card_long_7d.set(str(b_cnt), color=WIN11_GREEN)
+        self.card_short_7d.set(str(e_cnt), color=WIN11_RED)
 
     def _apply_signals(self, signals: list[dict]):
         self.tree_signals.delete(*self.tree_signals.get_children())
         for sig in signals:
-            direction = "▲ LONG" if sig["signal"] == 1 else "▼ SHORT"
-            tag = "long" if sig["signal"] == 1 else "short"
+            direction = "🟢 BUY" if sig["signal"] == 1 else "🔴 EXIT"
+            tag = "buy" if sig["signal"] == 1 else "exit"
             rating = "⭐⭐⭐⭐" if sig["signal"] == 1 else "⭐⭐⭐"
             self.tree_signals.insert("", "end", values=(
                 sig["date"], sig["symbol"], direction, rating
@@ -235,7 +237,7 @@ class DashboardTab(ttk.Frame):
     # ── Daily Scan ──────────────────────────────────────────────────────
 
     def _run_daily_scan(self):
-        self.app.set_status("Running daily scan... updating CSE prices and QQE signals")
+        self.app.set_status("Running daily scan... updating CSE prices and spot signals")
         self.app.start_progress()
         ThreadedTask(
             self.app.root, target=self.app.engine.run_daily_scan,

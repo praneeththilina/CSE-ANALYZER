@@ -1,8 +1,7 @@
 # views/chart.py  –  Interactive Charts & Smart Risk Calculator Tab (Windows 11 Light)
 """
-Candlestick + volume chart with QQE signals, EMA 50/200, dynamic Support/Resistance,
-Fibonacci retracement levels, live interactive Hover HUD, and an integrated Smart Risk &
-Position Size Calculator tailored for the CSE (LKR + fees + presets + steppers + trailing stop).
+Candlestick + volume chart with spot BUY & EXIT signals, EMA 50/200, dynamic Support/Resistance,
+Fibonacci retracements, official CSE company profile, and interactive crosshair HUD.
 """
 from __future__ import annotations
 
@@ -82,8 +81,9 @@ class ChartTab(ttk.Frame):
         ttk.Checkbutton(ctrl, text="EMA 50/200", variable=self.show_ma_var,
                         command=self._on_load).pack(side="left", padx=3)
 
-        self.show_qqe_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(ctrl, text="QQE Signals", variable=self.show_qqe_var,
+        self.show_signals_var = tk.BooleanVar(value=True)
+        self.show_qqe_var = self.show_signals_var  # alias
+        ttk.Checkbutton(ctrl, text="BUY/EXIT Signals", variable=self.show_signals_var,
                         command=self._on_load).pack(side="left", padx=3)
 
         self.show_sr_var = tk.BooleanVar(value=True)
@@ -309,47 +309,49 @@ class ChartTab(ttk.Frame):
         self.symbol_var.set(symbol)
         self._current_symbol = symbol
         period = self.period_var.get()
-        show_qqe = self.show_qqe_var.get()
+        show_signals = self.show_signals_var.get()
         self.app.set_status(f"Loading chart for {symbol}...")
         self.app.start_progress()
         ThreadedTask(
             self.app.root,
-            target=self._fetch_chart_data, args=(symbol, period, show_qqe),
+            target=self._fetch_chart_data, args=(symbol, period, show_signals),
             on_done=self._render_chart,
             on_error=self._on_error,
         ).start()
 
-    def _fetch_chart_data(self, symbol: str, period: str, show_qqe: bool) -> dict:
-        import stocks
-        df = self.app.engine.get_bars(symbol)
-        if df.empty:
+    def _fetch_chart_data(self, symbol: str, period: str, show_signals: bool) -> dict:
+        df_full = self.app.engine.get_bars(symbol)
+        if df_full.empty:
             raise ValueError(f"No historical price bars found for {symbol}")
 
         # Compute confluence & key levels for this symbol
-        confluence = self.app.engine.compute_confluence(df, 1)
+        confluence = self.app.engine.compute_confluence(df_full, 1)
+
+        # Compute spot BUY and EXIT signals across history
+        signals_data = None
+        if show_signals:
+            try:
+                signals_data = self.app.engine.compute_chart_signals(df_full)
+            except Exception:
+                pass
 
         # Apply period filter for chart display
+        df = df_full
         if period != "All":
             days = {"1M": 30, "3M": 90, "6M": 180, "1Y": 365}[period]
-            cutoff = df.index[-1] - pd.Timedelta(days=days)
-            df = df[df.index >= cutoff]
+            cutoff = df_full.index[-1] - pd.Timedelta(days=days)
+            df = df_full[df_full.index >= cutoff]
 
         result = {"df": df, "symbol": symbol, "confluence": confluence}
 
-        # QQE signals
-        if show_qqe:
-            try:
-                con = self.app.engine.connect()
-                closes = stocks.get_symbol_closes(con, symbol)
-                con.close()
-                if len(closes) >= 60:
-                    qqe = stocks.compute_qqe_from_closes(closes)
-                    qqe_df = pd.concat([closes.rename("close"), qqe], axis=1).dropna(subset=["close"])
-                    if period != "All":
-                        qqe_df = qqe_df[qqe_df.index >= df.index[0]]
-                    result["qqe"] = qqe_df
-            except Exception:
-                pass
+        if signals_data:
+            buys = signals_data.get("buy_signals")
+            exits = signals_data.get("exit_signals")
+            if buys is not None:
+                buys = buys[buys.index >= df.index[0]]
+            if exits is not None:
+                exits = exits[exits.index >= df.index[0]]
+            result["signals"] = {"buy": buys, "exit": exits}
 
         # Fetch official CSE company profile (cached)
         try:
@@ -440,28 +442,21 @@ class ChartTab(ttk.Frame):
                 ema200 = ohlcv["close"].ewm(span=200, adjust=False).mean()
                 addplots.append(mpf.make_addplot(ema200, color="#0284c7", width=1.4, linestyle="-", label="EMA 200"))
 
-        # QQE signal markers
-        if "qqe" in data and self.show_qqe_var.get():
-            qqe_df = data["qqe"]
-            buy_signals = pd.Series(np.nan, index=ohlcv.index)
-            sell_signals = pd.Series(np.nan, index=ohlcv.index)
-            for idx in qqe_df.index:
-                if idx in ohlcv.index:
-                    sig = qqe_df.loc[idx, "signal"]
-                    if sig == 1:
-                        buy_signals[idx] = ohlcv.loc[idx, "low"] * 0.98
-                    elif sig == -1:
-                        sell_signals[idx] = ohlcv.loc[idx, "high"] * 1.02
+        # Spot Equity BUY & EXIT Signal Markers
+        if "signals" in data and self.show_signals_var.get():
+            sigs = data["signals"]
+            buy_signals = sigs.get("buy")
+            exit_signals = sigs.get("exit")
 
-            if buy_signals.notna().any():
+            if buy_signals is not None and buy_signals.notna().any():
                 addplots.append(mpf.make_addplot(
                     buy_signals, type="scatter", marker="^",
-                    markersize=90, color="#0e700e"
+                    markersize=95, color="#0e700e"
                 ))
-            if sell_signals.notna().any():
+            if exit_signals is not None and exit_signals.notna().any():
                 addplots.append(mpf.make_addplot(
-                    sell_signals, type="scatter", marker="v",
-                    markersize=90, color="#d13438"
+                    exit_signals, type="scatter", marker="v",
+                    markersize=95, color="#c42b1c"
                 ))
 
         # Horizontal Lines: Support/Resistance, Fibonacci & Trade Targets
@@ -498,13 +493,15 @@ class ChartTab(ttk.Frame):
                     colors_list.append(col)
                     styles_list.append("-.")
 
-        # Trade target lines
-        if self.show_targets_var.get() and self._last_calc:
-            c = self._last_calc
-            e = c.get("entry", 0)
-            sl = c.get("stop_loss", 0)
-            t1 = c.get("target1", 0)
-            t2 = c.get("target2", 0)
+        # Trade target lines (Entry, Stop Loss, Target 1, Target 2, Trailing Stop)
+        if self.show_targets_var.get():
+            c = self._last_calc if self._last_calc else {}
+            last_p = float(ohlcv["close"].iloc[-1])
+            e = c.get("entry", confluence.get("current_price", last_p))
+            sl = c.get("stop_loss", confluence.get("suggested_stop", 0))
+            t1 = c.get("target1", confluence.get("target1", 0))
+            t2 = c.get("target2", confluence.get("target2", 0))
+            ts = c.get("trailing_stop", confluence.get("trailing_stop", 0))
             if e > 0:
                 hlines_list.append(e)
                 colors_list.append("#0067c0")
@@ -521,6 +518,10 @@ class ChartTab(ttk.Frame):
                 hlines_list.append(t2)
                 colors_list.append("#10b981")
                 styles_list.append("--")
+            if ts > 0 and abs(ts - sl) > 0.05:
+                hlines_list.append(ts)
+                colors_list.append("#7c3aed")
+                styles_list.append(":")
 
         plot_kwargs = {
             "type": "candle",
@@ -552,7 +553,8 @@ class ChartTab(ttk.Frame):
         breakout = "Near 52W High" if confluence.get("near_breakout") else f"52W High: {confluence.get('dist_52w_high', '')}"
         pattern = confluence.get("pattern", "—")
         grade_text = f"Grade: {grade} {stars} ({score}/100) | Vol: {vol} | Weekly: {weekly} | {breakout} | Pattern: {pattern}"
-        fig.suptitle(f"{symbol}  —  {grade_text}", fontsize=10, fontweight="bold", color="#0f172a", y=0.98)
+        clean_title = "".join(ch for ch in f"{symbol}  —  {grade_text}" if ord(ch) < 0x25A0 or ord(ch) in [0x2605, 0x25B2, 0x25BC])
+        fig.suptitle(clean_title, fontsize=10, fontweight="bold", color="#0f172a", y=0.98)
 
         # Embed in tkinter
         self._canvas = FigureCanvasTkAgg(fig, master=self.chart_frame)

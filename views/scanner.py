@@ -1,8 +1,7 @@
-# views/scanner.py  –  QQE Signal & Multi-Indicator Confluence Scanner (Windows 11 Light)
+# views/scanner.py  –  Spot Equity Signal & Confluence Scanner (Windows 11 Light)
 """
-Runs QQE technical analysis with multi-indicator confluence scoring
-(Trend EMA 50/200, Volume Surge, RSI Divergence, Weekly Macro Trend,
-Candlestick Patterns, and 52-Week Breakout Proximity) on all enabled symbols.
+Scans CSE equities for spot BUY setups (Breakout, Pullback, Golden Cross) and EXIT areas
+(Target 1, Target 2, Stop Loss, Trend Breakdown) with multi-indicator confluence scoring.
 Provides CSV export, Telegram broadcasting, and a 6-Pillar Confluence Audit Scorecard.
 """
 from __future__ import annotations
@@ -34,12 +33,12 @@ class ScannerTab(ttk.Frame):
         # ── Header ──────────────────────────────────────────────────────
         header = ttk.Frame(self)
         header.pack(fill="x", pady=(0, 10))
-        ttk.Label(header, text="QQE Signal & Confluence Scanner", font=FONT_TITLE).pack(side="left")
+        ttk.Label(header, text="CSE Spot Equity Signal Scanner (BUY & EXIT Areas)", font=FONT_TITLE).pack(side="left")
 
         # ── Parameters Colorful Form Card ───────────────────────────────
         self.params_card = FormCard(
             self,
-            title="QQE Strategy & Confluence Filter",
+            title="Spot Equity Strategy & Confluence Filter",
             accent_color="#4f46e5",
             bg_color="#f8faff",
             border_color="#c7d2fe",
@@ -50,23 +49,26 @@ class ScannerTab(ttk.Frame):
         param_row = tk.Frame(self.params_card.body, bg="#f8faff")
         param_row.pack(fill="x")
 
-        tk.Label(param_row, text="RSI Period:", font=FONT_BODY, bg="#f8faff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
-        self.rsi_var = tk.IntVar(value=14)
-        ttk.Spinbox(param_row, from_=2, to=50, textvariable=self.rsi_var, width=5).pack(side="left", padx=(0, 10))
+        tk.Label(param_row, text="Strategy Mode:", font=FONT_BODY_BOLD, bg="#f8faff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
+        self.strat_mode_var = tk.StringVar(value="All Strategies")
+        ttk.Combobox(
+            param_row, textvariable=self.strat_mode_var,
+            values=["All Strategies", "🚀 Breakout BUY", "💎 Pullback BUY", "⚡ Golden Cross BUY", "🔴 EXIT Areas"],
+            width=18, state="readonly"
+        ).pack(side="left", padx=(0, 12))
 
-        tk.Label(param_row, text="SF:", font=FONT_BODY, bg="#f8faff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
-        self.sf_var = tk.IntVar(value=5)
-        ttk.Spinbox(param_row, from_=1, to=20, textvariable=self.sf_var, width=5).pack(side="left", padx=(0, 10))
+        tk.Label(param_row, text="Min Confluence:", font=FONT_BODY, bg="#f8faff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
+        self.min_score_var = tk.IntVar(value=50)
+        ttk.Combobox(
+            param_row, textvariable=self.min_score_var,
+            values=[50, 60, 65, 80], width=5, state="readonly"
+        ).pack(side="left", padx=(0, 12))
 
-        tk.Label(param_row, text="QQE Factor:", font=FONT_BODY, bg="#f8faff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
-        self.qqe_var = tk.DoubleVar(value=4.238)
-        ttk.Entry(param_row, textvariable=self.qqe_var, width=6).pack(side="left", padx=(0, 10))
+        tk.Label(param_row, text="Min Volume Ratio:", font=FONT_BODY, bg="#f8faff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
+        self.min_vol_var = tk.DoubleVar(value=1.0)
+        ttk.Spinbox(param_row, from_=0.5, to=5.0, increment=0.25, textvariable=self.min_vol_var, width=5).pack(side="left", padx=(0, 12))
 
-        tk.Label(param_row, text="Threshold:", font=FONT_BODY, bg="#f8faff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
-        self.thresh_var = tk.IntVar(value=10)
-        ttk.Spinbox(param_row, from_=1, to=50, textvariable=self.thresh_var, width=5).pack(side="left", padx=(0, 12))
-
-        ttk.Button(param_row, text="🔍 Scan All Stocks", command=self._run_scan,
+        ttk.Button(param_row, text="🔍 Scan CSE Stocks", command=self._run_scan,
                    style="Accent.TButton").pack(side="right", padx=4)
 
         # ── Filter & Action Row ─────────────────────────────────────────
@@ -76,11 +78,11 @@ class ScannerTab(ttk.Frame):
         self.filter_var = tk.StringVar(value="all")
         ttk.Label(filter_frame, text="Filter:").pack(side="left", padx=(0, 4))
         filters = [
-            ("All", "all"),
+            ("All Setups", "all"),
+            ("🟢 BUY Signals", "buy_only"),
+            ("🔴 EXIT Areas", "exit_only"),
             ("⭐ High Conviction (A/A+)", "high_conviction"),
             ("🔥 Near 52W Breakout", "breakout"),
-            ("▲ Long", "long"),
-            ("▼ Short", "short"),
         ]
         for text, val in filters:
             ttk.Radiobutton(filter_frame, text=text, variable=self.filter_var,
@@ -100,36 +102,38 @@ class ScannerTab(ttk.Frame):
         table_container = ttk.Frame(self)
         table_container.pack(fill="both", expand=True)
 
-        cols = ("symbol", "industry", "signal", "grade", "score", "pattern", "trend", "weekly", "div", "dist_52w", "vol_ratio", "price", "rsi_ma", "date")
+        cols = ("symbol", "industry", "action", "signal", "grade", "score", "price", "sl", "ts", "t1", "t2", "vol_ratio", "trend", "pattern", "date")
         self.tree = SortableTreeview(table_container, columns=cols, height=22)
         self.tree.heading("symbol", text="Symbol")
         self.tree.heading("industry", text="Industry")
-        self.tree.heading("signal", text="Signal")
+        self.tree.heading("action", text="Action")
+        self.tree.heading("signal", text="Setup & Strategy")
         self.tree.heading("grade", text="Grade & Stars")
         self.tree.heading("score", text="Score")
-        self.tree.heading("pattern", text="Pattern")
-        self.tree.heading("trend", text="Daily Trend")
-        self.tree.heading("weekly", text="Weekly Macro")
-        self.tree.heading("div", text="Divergence")
-        self.tree.heading("dist_52w", text="52W High")
-        self.tree.heading("vol_ratio", text="Volume")
         self.tree.heading("price", text="Price (LKR)")
-        self.tree.heading("rsi_ma", text="RSI")
+        self.tree.heading("sl", text="Stop Loss")
+        self.tree.heading("ts", text="ATR Trail")
+        self.tree.heading("t1", text="Target 1 (1:1.5)")
+        self.tree.heading("t2", text="Target 2 (1:2.5)")
+        self.tree.heading("vol_ratio", text="Volume")
+        self.tree.heading("trend", text="Daily Trend")
+        self.tree.heading("pattern", text="Pattern")
         self.tree.heading("date", text="Date")
 
         self.tree.column("symbol", width=85, minwidth=65)
-        self.tree.column("industry", width=105, minwidth=75)
-        self.tree.column("signal", width=70, minwidth=55, anchor="center")
-        self.tree.column("grade", width=110, minwidth=85, anchor="center")
+        self.tree.column("industry", width=110, minwidth=75)
+        self.tree.column("action", width=75, minwidth=55, anchor="center")
+        self.tree.column("signal", width=140, minwidth=100)
+        self.tree.column("grade", width=95, minwidth=80, anchor="center")
         self.tree.column("score", width=50, minwidth=40, anchor="center")
-        self.tree.column("pattern", width=95, minwidth=70, anchor="center")
-        self.tree.column("trend", width=85, minwidth=65, anchor="center")
-        self.tree.column("weekly", width=80, minwidth=65, anchor="center")
-        self.tree.column("div", width=90, minwidth=65, anchor="center")
-        self.tree.column("dist_52w", width=75, minwidth=55, anchor="center")
-        self.tree.column("vol_ratio", width=60, minwidth=45, anchor="center")
         self.tree.column("price", width=75, minwidth=50, anchor="e")
-        self.tree.column("rsi_ma", width=55, minwidth=40, anchor="e")
+        self.tree.column("sl", width=75, minwidth=50, anchor="e")
+        self.tree.column("ts", width=75, minwidth=50, anchor="e")
+        self.tree.column("t1", width=80, minwidth=55, anchor="e")
+        self.tree.column("t2", width=80, minwidth=55, anchor="e")
+        self.tree.column("vol_ratio", width=60, minwidth=45, anchor="center")
+        self.tree.column("trend", width=85, minwidth=65, anchor="center")
+        self.tree.column("pattern", width=95, minwidth=70, anchor="center")
         self.tree.column("date", width=75, minwidth=65, anchor="center")
 
         scrollbar = ttk.Scrollbar(table_container, orient="vertical", command=self.tree.yview)
@@ -137,32 +141,41 @@ class ScannerTab(ttk.Frame):
         self.tree.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-        # Color Tags for Signal and Quality Grades
+        # Color Tags
         self.tree.tag_configure("grade_a_plus", foreground=GRADE_A_PLUS)
         self.tree.tag_configure("grade_a", foreground=GRADE_A)
         self.tree.tag_configure("grade_b", foreground=GRADE_B)
         self.tree.tag_configure("grade_c", foreground=GRADE_C)
-        self.tree.tag_configure("long", foreground=WIN11_GREEN)
-        self.tree.tag_configure("short", foreground=WIN11_RED)
+        self.tree.tag_configure("tag_buy", foreground=WIN11_GREEN)
+        self.tree.tag_configure("tag_exit", foreground=WIN11_RED)
 
         self.tree.bind("<Double-1>", self._on_double_click)
 
     # ── Scan Execution ──────────────────────────────────────────────────
 
     def _run_scan(self):
-        self.app.set_status("Scanning symbols with QQE & Confluence Engine... please wait")
+        self.app.set_status("Scanning CSE equities for spot BUY setups and EXIT areas... please wait")
         self.app.start_progress()
 
+        raw_mode = self.strat_mode_var.get()
+        mode_map = {
+            "All Strategies": "all",
+            "🚀 Breakout BUY": "breakout",
+            "💎 Pullback BUY": "pullback",
+            "⚡ Golden Cross BUY": "golden_cross",
+            "🔴 EXIT Areas": "exit_only",
+        }
+        strat_mode = mode_map.get(raw_mode, "all")
+
         params = {
-            "rsi_period": self.rsi_var.get(),
-            "sf": self.sf_var.get(),
-            "qqe_factor": self.qqe_var.get(),
-            "threshold": self.thresh_var.get(),
+            "strategy_mode": strat_mode,
+            "min_score": self.min_score_var.get(),
+            "min_vol": self.min_vol_var.get(),
         }
 
         ThreadedTask(
             self.app.root,
-            target=self.app.engine.run_qqe_scan,
+            target=self.app.engine.scan_equity_signals,
             kwargs=params,
             on_done=self._on_scan_done,
             on_error=self._on_error,
@@ -172,9 +185,10 @@ class ScannerTab(ttk.Frame):
         self._all_results = results
         self._apply_filter()
         self.app.stop_progress()
+        buy_count = sum(1 for r in results if r.get("action") == "BUY")
+        exit_count = sum(1 for r in results if r.get("action") == "EXIT")
         high_conv = sum(1 for r in results if r.get("grade") in ["A+", "A"])
-        breakouts = sum(1 for r in results if r.get("near_breakout"))
-        self.app.set_status(f"Scan complete: {len(results)} signals found ({high_conv} High Conviction, {breakouts} Near 52W Breakout)")
+        self.app.set_status(f"Scan complete: {len(results)} setups ({buy_count} BUY, {exit_count} EXIT, {high_conv} High Conviction)")
 
     def _apply_filter(self):
         f = self.filter_var.get()
@@ -184,52 +198,58 @@ class ScannerTab(ttk.Frame):
         if f == "high_conviction":
             filtered = [r for r in self._all_results if r.get("grade") in ["A+", "A"]]
         elif f == "breakout":
-            filtered = [r for r in self._all_results if r.get("near_breakout")]
-        elif f == "long":
-            filtered = [r for r in self._all_results if r["signal"] == 1]
-        elif f == "short":
-            filtered = [r for r in self._all_results if r["signal"] == -1]
+            filtered = [r for r in self._all_results if r.get("near_breakout") or "Breakout" in r.get("signal_text", "")]
+        elif f == "buy_only":
+            filtered = [r for r in self._all_results if r.get("action") == "BUY"]
+        elif f == "exit_only":
+            filtered = [r for r in self._all_results if r.get("action") == "EXIT"]
 
         for r in filtered:
-            sig_text = "▲ LONG" if r["signal"] == 1 else "▼ SHORT"
+            action = r.get("action", "BUY")
+            sig_text = r.get("signal_text", "BUY Setup")
+            act_badge = "🟢 BUY" if action == "BUY" else ("🔴 EXIT" if action == "EXIT" else "🟡 HOLD")
             grade = r.get("grade", "B")
             stars = r.get("stars", "★★★")
             score = r.get("score", 50)
             pattern = r.get("pattern", "—")
             trend = r.get("trend", "—")
-            weekly = r.get("weekly_trend", "—")
-            div = r.get("divergence", "—")
-            dist_52w = r.get("dist_52w", "0.0%")
             vol_ratio = r.get("vol_ratio", "1.0x")
             grade_display = f"{grade} {stars}"
 
+            tags = []
+            if action == "BUY":
+                tags.append("tag_buy")
+            elif action == "EXIT":
+                tags.append("tag_exit")
+
             if grade == "A+":
-                tag = "grade_a_plus"
+                tags.append("grade_a_plus")
             elif grade == "A":
-                tag = "grade_a"
+                tags.append("grade_a")
             elif grade == "B":
-                tag = "grade_b"
+                tags.append("grade_b")
             else:
-                tag = "grade_c"
+                tags.append("grade_c")
 
             self.tree.insert("", "end", values=(
                 r["symbol"],
                 r["industry"],
+                act_badge,
                 sig_text,
                 grade_display,
                 f"{score}/100",
-                pattern,
-                trend,
-                weekly,
-                div,
-                dist_52w,
+                r.get("price", "0.00"),
+                f"{float(r.get('stop_loss', 0)):.2f}",
+                f"{float(r.get('trailing_stop', 0)):.2f}",
+                f"{float(r.get('target1', 0)):.2f}",
+                f"{float(r.get('target2', 0)):.2f}",
                 vol_ratio,
-                f"{float(r['price']):.2f}",
-                f"{float(r['rsi_ma']):.2f}",
-                r["date"],
-            ), tags=(tag,))
+                trend,
+                pattern,
+                r.get("date", "—"),
+            ), tags=tuple(tags))
 
-        self.count_var.set(f"{len(filtered)} signals shown (of {len(self._all_results)})")
+        self.count_var.set(f"{len(filtered)} setups shown (of {len(self._all_results)})")
 
     # ── Export & Telegram Broadcast Actions ─────────────────────────────
 
@@ -250,10 +270,9 @@ class ScannerTab(ttk.Frame):
 
         try:
             fields = [
-                "symbol", "industry", "signal_text", "grade", "score",
-                "pattern", "trend", "weekly_trend", "divergence", "dist_52w",
-                "vol_ratio", "price", "stop_loss", "trailing_stop", "target1",
-                "target2", "atr", "date"
+                "symbol", "industry", "action", "signal_text", "grade", "score",
+                "price", "stop_loss", "trailing_stop", "target1", "target2",
+                "vol_ratio", "trend", "pattern", "date", "reason"
             ]
             with open(file_path, "w", newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
@@ -318,7 +337,7 @@ class ScannerTab(ttk.Frame):
         hdr_frame = tk.Frame(win, bg="#4f46e5", padx=16, pady=12)
         hdr_frame.pack(fill="x")
         tk.Label(hdr_frame, text=f"📊 {symbol} — {match.get('industry', '')}", font=("Segoe UI Semibold", 13), bg="#4f46e5", fg="#ffffff").pack(anchor="w")
-        grade_str = f"Grade: {match.get('grade', 'A')} {match.get('stars', '')} | Score: {match.get('score', 0)}/100 | Signal: {match.get('signal_text', 'LONG')}"
+        grade_str = f"Grade: {match.get('grade', 'A')} {match.get('stars', '')} | Score: {match.get('score', 0)}/100 | Setup: {match.get('signal_text', 'BUY')}"
         tk.Label(hdr_frame, text=grade_str, font=("Segoe UI", 10), bg="#4f46e5", fg="#e0e7ff").pack(anchor="w", pady=(2, 0))
 
         # Checklist Body
@@ -357,8 +376,8 @@ class ScannerTab(ttk.Frame):
         tk.Label(trade_frame, text=t_txt, font=FONT_BODY, bg="#f0fdf4", fg="#1e293b", justify="left").pack(anchor="w", pady=(2, 0))
 
         # Buttons
-        btn_row = tk.Frame(win, bg=WIN11_BG, padx=16, pady=(0, 12))
-        btn_row.pack(fill="x")
+        btn_row = tk.Frame(win, bg=WIN11_BG)
+        btn_row.pack(fill="x", padx=16, pady=(0, 12))
 
         ttk.Button(btn_row, text="📈 Open in Chart", style="Accent.TButton",
                    command=lambda: [win.destroy(), self.app.switch_to_chart(symbol, p, sl)]).pack(side="right", padx=4)

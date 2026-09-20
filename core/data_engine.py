@@ -142,14 +142,18 @@ class DataEngine:
                     return default
 
             seven_days_ago = (date.today() - timedelta(days=7)).isoformat()
+            b7d = safe("SELECT COUNT(*) FROM signals WHERE date>=? AND signal=1", (seven_days_ago,))
+            e7d = safe("SELECT COUNT(*) FROM signals WHERE date>=? AND signal=-1", (seven_days_ago,))
             return {
                 "symbols_total": safe("SELECT COUNT(*) FROM symbols"),
                 "symbols_enabled": safe("SELECT COUNT(*) FROM symbols WHERE enabled=1"),
                 "bars_total": safe("SELECT COUNT(*) FROM bars"),
                 "last_bar_date": safe("SELECT MAX(date) FROM bars", default="—"),
                 "last_signal_date": safe("SELECT MAX(date) FROM signals", default="—"),
-                "long_7d": safe("SELECT COUNT(*) FROM signals WHERE date>=? AND signal=1", (seven_days_ago,)),
-                "short_7d": safe("SELECT COUNT(*) FROM signals WHERE date>=? AND signal=-1", (seven_days_ago,)),
+                "long_7d": b7d,
+                "short_7d": e7d,
+                "buy_7d": b7d,
+                "exit_7d": e7d,
             }
         finally:
             con.close()
@@ -379,23 +383,24 @@ class DataEngine:
 
     def send_telegram_signals(self, signals: List[Dict[str, Any]]) -> str:
         """
-        Broadcasts high-conviction signals to Telegram using formatted cards.
+        Broadcasts high-conviction spot BUY setups and EXIT alerts to Telegram.
         """
         if not signals:
             return "No signals provided to send."
 
         top_signals = [s for s in signals if s.get("grade") in ["A+", "A"]][:5]
         if not top_signals:
-            top_signals = signals[:3]
+            top_signals = signals[:4]
 
         lines = [
-            "🚀 *CSE High-Conviction Signal Alert*",
+            "🚀 *CSE Spot Equity Trade Alert*",
             f"📅 *Date:* `{top_signals[0].get('date', 'Today')}`",
             "────────────────────────",
         ]
         for s in top_signals:
             sym = s.get("symbol", "")
-            sig = s.get("signal_text", "LONG")
+            action = s.get("action", "BUY")
+            sig = s.get("signal_text", "BUY Setup")
             grade = s.get("grade", "A")
             stars = s.get("stars", "★★★★")
             price = s.get("price", "0.00")
@@ -403,19 +408,22 @@ class DataEngine:
             t1 = s.get("target1", "0.00")
             t2 = s.get("target2", "0.00")
             vol = s.get("vol_ratio", "1.0x")
-            div = s.get("divergence", "—")
-            weekly = s.get("weekly_trend", "▲ Bullish")
+            trend = s.get("trend", "▲ Bullish")
+            reason = s.get("reason", "")
 
-            lines.append(f"*{sym}* | `{sig}` ({grade} {stars})")
-            lines.append(f"• *Entry:* `{price} LKR` | *Stop:* `{sl} LKR`")
-            lines.append(f"• *Target 1:* `{t1}` | *Target 2:* `{t2}`")
-            lines.append(f"• *Volume:* `{vol}` | *Weekly:* `{weekly}` | *Div:* `{div}`")
+            icon = "🟢" if action == "BUY" else "🔴"
+            lines.append(f"{icon} *{sym}* | `{sig}` ({grade} {stars})")
+            lines.append(f"• *Price / Entry:* `{price} LKR`")
+            lines.append(f"• *🎯 Target 1 (1:1.5):* `{t1} LKR` | *🏆 Target 2:* `{t2} LKR`")
+            lines.append(f"• *🛡️ Stop Loss:* `{sl} LKR` | *Vol:* `{vol}` | *Trend:* `{trend}`")
+            if reason:
+                lines.append(f"• *Rationale:* _{reason}_")
             lines.append("────────────────────────")
 
-        lines.append("⚠️ _CSE Analyzer Decision Support • Manage risk strictly_")
+        lines.append("⚠️ _CSE Spot Equity Decision Support • Strict Risk Management_")
         text = "\n".join(lines)
         stocks.send_telegram_message(text, force=True)
-        return f"Successfully sent {len(top_signals)} signals to Telegram!"
+        return f"Successfully sent {len(top_signals)} spot trade signals to Telegram!"
 
     @staticmethod
     def detect_candlestick_pattern(df: pd.DataFrame) -> Dict[str, Any]:
@@ -445,27 +453,27 @@ class DataEngine:
 
         # 1. Bullish Hammer (Lower wick >= 1.8x body, small upper wick)
         if lower_wick >= 1.8 * body and upper_wick <= 0.35 * body and body > 0.05 * tot_range:
-            return {"pattern": "Hammer 🔨", "bias": "Bullish"}
+            return {"pattern": "Bullish Hammer", "bias": "Bullish"}
 
         # 2. Bullish Engulfing (Previous red, current green completely engulfs)
         if pc < po and c > o and c >= po and o <= pc and body > prev_body:
-            return {"pattern": "Engulfing 🟢", "bias": "Bullish"}
+            return {"pattern": "Bullish Engulfing", "bias": "Bullish"}
 
         # 3. Morning Star (Bearish, Small star, Bullish recovery)
         if p2c < p2o and prev_body <= 0.35 * (p2h - p2l) and c > o and c > (p2o + p2c) / 2.0:
-            return {"pattern": "Morning Star ☀️", "bias": "Bullish"}
+            return {"pattern": "Morning Star", "bias": "Bullish"}
 
         # 4. Shooting Star / Inverted Hammer (Upper wick >= 1.8x body, small lower wick)
         if upper_wick >= 1.8 * body and lower_wick <= 0.35 * body and body > 0.05 * tot_range:
-            return {"pattern": "Shooting Star ⚠️", "bias": "Bearish"}
+            return {"pattern": "Shooting Star", "bias": "Bearish"}
 
         # 5. Bearish Engulfing (Previous green, current red completely engulfs)
         if pc > po and c < o and c <= po and o >= pc and body > prev_body:
-            return {"pattern": "Engulfing 🔴", "bias": "Bearish"}
+            return {"pattern": "Bearish Engulfing", "bias": "Bearish"}
 
         # 6. Doji (Indecision / Equilibrium)
         if body <= 0.10 * tot_range:
-            return {"pattern": "Doji ⚖️", "bias": "Neutral"}
+            return {"pattern": "Doji", "bias": "Neutral"}
 
         return {"pattern": "—", "bias": "Neutral"}
 
@@ -578,42 +586,26 @@ class DataEngine:
         extremes_52w = self.compute_52w_extremes(df)
         fib_levels = self.compute_fibonacci_levels(df, lookback=120)
 
-        # 6. Confluence Scoring (0 - 100)
-        score = 25  # Base score for valid crossover signal
+        # 6. Confluence Scoring (0 - 100) — Spot Long Equity Quality
+        score = 25  # Base score
 
-        # Trend scoring
-        if signal == 1:  # LONG
-            trend_text = "▲ Bullish" if is_above_200 else "▼ Below 200 EMA"
-            trend_status = "Bullish" if is_above_200 else "Counter-Trend"
-            if is_above_200:
-                score += 15
-            elif is_above_50:
-                score += 10
-            if is_golden_cross:
-                score += 10
-            if weekly_info.get("weekly_bullish"):
-                score += 10
-            if div_info.get("bullish"):
-                score += 15
-            if pattern_info.get("bias") == "Bullish":
-                score += 10
-            if extremes_52w.get("near_breakout"):
-                score += 10
-        else:  # SHORT
-            trend_text = "▼ Bearish" if not is_above_200 else "▲ Above 200 EMA"
-            trend_status = "Bearish" if not is_above_200 else "Counter-Trend"
-            if not is_above_200:
-                score += 15
-            elif not is_above_50:
-                score += 10
-            if not is_golden_cross:
-                score += 10
-            if not weekly_info.get("weekly_bullish"):
-                score += 10
-            if div_info.get("bearish"):
-                score += 15
-            if pattern_info.get("bias") == "Bearish":
-                score += 10
+        # Macro Trend scoring
+        trend_text = "▲ Bullish" if is_above_200 else "▼ Below 200 EMA"
+        trend_status = "Bullish" if is_above_200 else "Counter-Trend"
+        if is_above_200:
+            score += 15
+        elif is_above_50:
+            score += 10
+        if is_golden_cross:
+            score += 10
+        if weekly_info.get("weekly_bullish"):
+            score += 10
+        if div_info.get("bullish"):
+            score += 15
+        if pattern_info.get("bias") == "Bullish":
+            score += 10
+        if extremes_52w.get("near_breakout"):
+            score += 10
 
         # Volume surge scoring
         if vol_ratio >= 2.0:
@@ -645,23 +637,14 @@ class DataEngine:
             grade = "C"
             stars = "★★"
 
-        # Suggested Stop Loss, Trailing Stop, and Targets
-        if signal == 1:  # LONG
-            suggested_stop = max(round(c_last - 1.5 * atr, 2), round(c_last * 0.90, 2))
-            if suggested_stop >= c_last:
-                suggested_stop = round(c_last * 0.95, 2)
-            trailing_stop = round(max(0.1, c_last - 2.0 * atr), 2)
-            risk_unit = c_last - suggested_stop
-            target1 = round(c_last + 1.5 * risk_unit, 2)
-            target2 = round(c_last + 2.5 * risk_unit, 2)
-        else:  # SHORT
-            suggested_stop = min(round(c_last + 1.5 * atr, 2), round(c_last * 1.10, 2))
-            if suggested_stop <= c_last:
-                suggested_stop = round(c_last * 1.05, 2)
-            trailing_stop = round(c_last + 2.0 * atr, 2)
-            risk_unit = suggested_stop - c_last
-            target1 = round(max(0.1, c_last - 1.5 * risk_unit), 2)
-            target2 = round(max(0.1, c_last - 2.5 * risk_unit), 2)
+        # Spot Equities Suggested Stop Loss, Trailing Stop, and Targets (Long-Only)
+        suggested_stop = max(round(c_last - 1.5 * atr, 2), round(c_last * 0.92, 2))
+        if suggested_stop >= c_last:
+            suggested_stop = round(c_last * 0.95, 2)
+        trailing_stop = round(max(0.1, c_last - 2.0 * atr), 2)
+        risk_unit = max(c_last - suggested_stop, c_last * 0.03)
+        target1 = round(c_last + 1.5 * risk_unit, 2)
+        target2 = round(c_last + 2.5 * risk_unit, 2)
 
         return {
             "score": score,
@@ -725,13 +708,8 @@ class DataEngine:
         half_fee_rate = (fee_pct / 100.0) / 2.0  # 0.56% on buy, 0.56% on sell
         buy_fee = total_cost * half_fee_rate
 
-        is_long = entry >= stop_loss
-        if is_long:
-            t1 = round(entry + 1.5 * risk_per_share, 2)
-            t2 = round(entry + 2.5 * risk_per_share, 2)
-        else:
-            t1 = round(max(0.1, entry - 1.5 * risk_per_share), 2)
-            t2 = round(max(0.1, entry - 2.5 * risk_per_share), 2)
+        t1 = round(entry + 1.5 * risk_per_share, 2)
+        t2 = round(entry + 2.5 * risk_per_share, 2)
 
         sell_val_t1 = shares * t1
         sell_fee_t1 = sell_val_t1 * half_fee_rate
@@ -767,16 +745,178 @@ class DataEngine:
             "rr_ratio_t2": "1:2.5",
         }
 
-    # ── QQE scanning ────────────────────────────────────────────────────
+    # ── Spot Equity Decision Engine (BUY & EXIT Areas) ──────────────────
 
-    def run_qqe_scan(
+    def compute_spot_signals(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """
+        Spot Equities Decision Engine for Colombo Stock Exchange.
+        Evaluates 3 high-conviction BUY setups and 4 EXIT areas for cash holdings.
+        No short selling or futures logic.
+        """
+        if df.empty or len(df) < 25:
+            return {
+                "action": "HOLD",
+                "setup_type": "Insufficient Data",
+                "signal_text": "HOLD",
+                "is_buy": False,
+                "is_exit": False,
+                "current_price": 0.0,
+                "entry_price": 0.0,
+                "target1": 0.0,
+                "target2": 0.0,
+                "stop_loss": 0.0,
+                "trailing_stop": 0.0,
+                "score": 0,
+                "grade": "C",
+                "stars": "★★",
+                "reason": "Minimum 25 daily price bars required.",
+            }
+
+        close = df["close"]
+        high = df["high"]
+        low = df["low"]
+        volume = df["volume"]
+        c_last = float(close.iloc[-1])
+        c_prev = float(close.iloc[-2]) if len(close) >= 2 else c_last
+        o_last = float(df["open"].iloc[-1]) if "open" in df else c_prev
+
+        # EMAs: 20, 50, 200
+        ema20 = close.ewm(span=min(20, len(close)), adjust=False).mean()
+        ema50 = close.ewm(span=min(50, len(close)), adjust=False).mean()
+        ema200 = close.ewm(span=min(200, len(close)), adjust=False).mean() if len(close) >= 50 else ema50
+
+        e20_last = float(ema20.iloc[-1])
+        e20_prev = float(ema20.iloc[-2]) if len(ema20) >= 2 else e20_last
+        e50_last = float(ema50.iloc[-1])
+        e50_prev = float(ema50.iloc[-2]) if len(ema50) >= 2 else e50_last
+        e200_last = float(ema200.iloc[-1])
+
+        is_above_200 = c_last >= e200_last
+        is_above_50 = c_last >= e50_last
+        is_golden_cross = e50_last >= e200_last
+        is_ema20_cross = (e20_prev <= e50_prev) and (e20_last > e50_last)
+
+        # 20-day Volume Surge
+        vol_window = min(20, len(volume))
+        vol_ma20 = volume.rolling(vol_window).mean()
+        avg_vol = float(vol_ma20.iloc[-1]) if not np.isnan(vol_ma20.iloc[-1]) else 1.0
+        v_last = float(volume.iloc[-1])
+        vol_ratio = (v_last / avg_vol) if avg_vol > 0 else 1.0
+
+        # ATR 14
+        prev_close = close.shift(1)
+        tr1 = high - low
+        tr2 = (high - prev_close).abs()
+        tr3 = (low - prev_close).abs()
+        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+        atr_series = tr.rolling(min(14, len(tr))).mean()
+        atr = float(atr_series.iloc[-1]) if not np.isnan(atr_series.iloc[-1]) and atr_series.iloc[-1] > 0 else max(c_last * 0.02, 0.5)
+
+        # 20-day High & Low
+        high_20d = float(high.iloc[:-1].tail(20).max()) if len(high) > 20 else float(high.max())
+        low_20d = float(low.iloc[:-1].tail(20).min()) if len(low) > 20 else float(low.min())
+
+        # Confluence metrics
+        conf = self.compute_confluence(df, signal=1)
+
+        # Default Spot Targets & Stops
+        suggested_stop = conf["suggested_stop"]
+        trailing_stop = conf["trailing_stop"]
+        target1 = conf["target1"]
+        target2 = conf["target2"]
+
+        # ── Spot Decision Logic ─────────────────────────────────────────
+        action = "HOLD"
+        setup_type = "Consolidation / Hold"
+        reason = "Price within established range; no immediate entry or exit triggered."
+
+        # 1. EVALUATE BUY SETUPS
+        # Setup A: Momentum Breakout BUY
+        if c_last >= high_20d and is_above_50 and vol_ratio >= 1.20 and conf["score"] >= 60:
+            action = "BUY"
+            setup_type = "🚀 Breakout BUY"
+            reason = f"Broke 20-day high ({high_20d:.2f}) with {vol_ratio:.1f}x volume surge."
+
+        # Setup B: Pullback to Value BUY
+        elif is_above_200 and abs(c_last - e50_last) / c_last < 0.035 and c_last >= o_last and conf["score"] >= 55:
+            action = "BUY"
+            setup_type = "💎 Pullback BUY"
+            reason = f"Testing 50 EMA dynamic support ({e50_last:.2f}) with bullish candle."
+
+        # Setup C: Golden Crossover BUY
+        elif is_ema20_cross and is_above_200 and conf["score"] >= 50:
+            action = "BUY"
+            setup_type = "⚡ Golden Cross BUY"
+            reason = f"EMA 20 crossed above EMA 50 with macro trend alignment."
+
+        # 2. EVALUATE EXIT CONDITIONS (For closing existing holdings)
+        # Condition A: Target 2 Reached
+        elif c_last >= target2:
+            action = "EXIT"
+            setup_type = "🏆 Target 2 Hit"
+            reason = f"Hit Target 2 ({target2:.2f} LKR, ~2.5R). Lock in full profits."
+
+        # Condition B: Target 1 Reached
+        elif c_last >= target1:
+            action = "EXIT"
+            setup_type = "🎯 Target 1 Hit"
+            reason = f"Hit Target 1 ({target1:.2f} LKR, ~1.5R). Lock in 50% profit and trail stop."
+
+        # Condition C: Stop Loss Breached
+        elif c_last <= suggested_stop:
+            action = "EXIT"
+            setup_type = "⚠️ Stop Loss Breached"
+            reason = f"Fell below risk boundary ({suggested_stop:.2f} LKR). Protect capital."
+
+        # Condition D: Trend Breakdown below 50 EMA
+        elif not is_above_50 and c_prev >= e50_prev and vol_ratio >= 1.3:
+            action = "EXIT"
+            setup_type = "🔻 Trend Breakdown"
+            reason = f"Broke below 50 EMA support ({e50_last:.2f} LKR) on high volume."
+
+        return {
+            "action": action,
+            "setup_type": setup_type,
+            "signal_text": setup_type,
+            "is_buy": action == "BUY",
+            "is_exit": action == "EXIT",
+            "is_hold": action == "HOLD",
+            "current_price": c_last,
+            "entry_price": c_last,
+            "target1": target1,
+            "target2": target2,
+            "stop_loss": suggested_stop,
+            "trailing_stop": trailing_stop,
+            "risk_unit": round(abs(c_last - suggested_stop), 2),
+            "score": conf["score"],
+            "grade": conf["grade"],
+            "stars": conf["stars"],
+            "trend": conf["trend_text"],
+            "vol_ratio": conf["vol_ratio_str"],
+            "divergence": conf["divergence"],
+            "weekly_trend": conf["weekly_trend"],
+            "pattern": conf["pattern"],
+            "dist_52w": conf["dist_52w_high"],
+            "near_breakout": conf["near_breakout"],
+            "reason": reason,
+            "date": df.index[-1].strftime("%Y-%m-%d"),
+            "atr": conf["atr"],
+            "support": conf["support1"],
+            "resistance": conf["resistance1"],
+        }
+
+    # ── Spot Equity Scanner ─────────────────────────────────────────────
+
+    def scan_equity_signals(
         self,
-        rsi_period: int = 14,
-        sf: int = 5,
-        qqe_factor: float = 4.238,
-        threshold: int = 10,
+        strategy_mode: str = "all",
+        min_score: int = 50,
+        min_vol: float = 1.0,
     ) -> List[Dict[str, Any]]:
-        """Run QQE on all enabled symbols and return enriched signal rows."""
+        """
+        Scans all enabled CSE stocks for spot BUY setups and EXIT areas.
+        Completely replaces QQE scanning with long-only cash equities intelligence.
+        """
         con = self.connect()
         try:
             enabled = stocks.fetch_symbols_from_db(con, only_enabled=True)
@@ -788,57 +928,75 @@ class DataEngine:
             results = []
             for sym in enabled:
                 try:
-                    closes = stocks.get_symbol_closes(con, sym)
-                    if len(closes) < 60:
+                    bars_df = self.get_bars(sym)
+                    if bars_df.empty or len(bars_df) < 25:
                         continue
-                    qqe = stocks.compute_qqe_from_closes(
-                        closes, rsi_period=rsi_period, sf=sf,
-                        qqe_factor=qqe_factor, threshold=threshold,
-                    )
-                    df = pd.concat([closes.rename("close"), qqe], axis=1).dropna(subset=["close"])
-                    if df.empty:
-                        continue
-                    last = df.iloc[-1]
-                    sig = int(last["signal"])
-                    if sig != 0:
-                        # Compute full confluence metrics using historical bars
-                        bars_df = self.get_bars(sym)
-                        conf = self.compute_confluence(bars_df, sig)
 
-                        results.append({
-                            "symbol": sym,
-                            "industry": ind_map.get(sym, ""),
-                            "signal": sig,
-                            "signal_text": "LONG" if sig == 1 else "SHORT",
-                            "grade": conf["grade"],
-                            "stars": conf["stars"],
-                            "score": conf["score"],
-                            "trend": conf["trend_text"],
-                            "vol_ratio": conf["vol_ratio_str"],
-                            "divergence": conf["divergence"],
-                            "weekly_trend": conf["weekly_trend"],
-                            "pattern": conf["pattern"],
-                            "dist_52w": conf["dist_52w_high"],
-                            "near_breakout": conf["near_breakout"],
-                            "rsi_ma": f"{last.get('rsi_ma', 0):.2f}",
-                            "fast_tl": f"{last.get('fast_tl', 0):.2f}",
-                            "price": f"{last['close']:.2f}",
-                            "date": df.index[-1].strftime("%Y-%m-%d"),
-                            "atr": conf["atr"],
-                            "stop_loss": conf["suggested_stop"],
-                            "trailing_stop": conf["trailing_stop"],
-                            "target1": conf["target1"],
-                            "target2": conf["target2"],
-                            "support": conf["support1"],
-                            "resistance": conf["resistance1"],
-                        })
+                    spot = self.compute_spot_signals(bars_df)
+                    action = spot["action"]
+
+                    # Filter out non-actionable holds if requested
+                    if action == "HOLD" and strategy_mode not in ["all", "all_including_hold"]:
+                        continue
+
+                    if spot["score"] < min_score:
+                        continue
+
+                    # Volume filter
+                    try:
+                        v_ratio = float(spot["vol_ratio"].replace("x", ""))
+                        if v_ratio < min_vol:
+                            continue
+                    except Exception:
+                        pass
+
+                    # Strategy mode filter
+                    if strategy_mode == "buy_only" and action != "BUY":
+                        continue
+                    elif strategy_mode == "exit_only" and action != "EXIT":
+                        continue
+                    elif strategy_mode == "breakout" and "Breakout" not in spot["setup_type"]:
+                        continue
+                    elif strategy_mode == "pullback" and "Pullback" not in spot["setup_type"]:
+                        continue
+                    elif strategy_mode == "golden_cross" and "Golden Cross" not in spot["setup_type"]:
+                        continue
+
+                    results.append({
+                        "symbol": sym,
+                        "industry": ind_map.get(sym, ""),
+                        "action": action,
+                        "signal": 1 if action == "BUY" else (-1 if action == "EXIT" else 0),
+                        "signal_text": spot["setup_type"],
+                        "grade": spot["grade"],
+                        "stars": spot["stars"],
+                        "score": spot["score"],
+                        "trend": spot["trend"],
+                        "vol_ratio": spot["vol_ratio"],
+                        "divergence": spot["divergence"],
+                        "weekly_trend": spot["weekly_trend"],
+                        "pattern": spot["pattern"],
+                        "dist_52w": spot["dist_52w"],
+                        "near_breakout": spot["near_breakout"],
+                        "price": f"{spot['current_price']:.2f}",
+                        "date": spot["date"],
+                        "atr": spot["atr"],
+                        "stop_loss": spot["stop_loss"],
+                        "trailing_stop": spot["trailing_stop"],
+                        "target1": spot["target1"],
+                        "target2": spot["target2"],
+                        "support": spot["support"],
+                        "resistance": spot["resistance"],
+                        "reason": spot["reason"],
+                    })
                 except Exception:
                     continue
             return results
         finally:
             con.close()
 
-    scan_qqe_signals = run_qqe_scan
+    run_qqe_scan = scan_equity_signals
+    scan_qqe_signals = scan_equity_signals
 
     # ── Daily scan (bars + signals) ─────────────────────────────────────
 
@@ -882,17 +1040,344 @@ class DataEngine:
             buf.write(f"\n[ERROR] {e}")
         return buf.getvalue()
 
-    # ── Backtest ────────────────────────────────────────────────────────
+    # ── Spot Chart Signals & Spot Equity Backtest Engine ────────────────
 
-    def run_backtest(self, symbol: str, params: Dict[str, Any]) -> Dict[str, Any]:
-        con = self.connect()
-        try:
-            bars_df = qbs.load_bars_full(con, symbol)
-            if bars_df.empty:
-                raise ValueError(f"No data for {symbol}")
-            return qbs.run_full_backtest(bars_df, params)
-        finally:
-            con.close()
+    def compute_chart_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        Generate historical spot BUY and EXIT signals for charting on CSE equities.
+        Long-only setups (Breakout, Pullback, Golden Cross) and EXIT zones (Target 1, Target 2, Stop Loss, Breakdown).
+        """
+        if df.empty or len(df) < 25:
+            empty_s = pd.Series(np.nan, index=df.index if not df.empty else [])
+            return {"buy_signals": empty_s, "exit_signals": empty_s}
+
+        close = df["close"]
+        high = df["high"]
+        low = df["low"]
+        vol = df["volume"]
+        o = df["open"] if "open" in df else close
+
+        # EMAs
+        ema20 = close.ewm(span=min(20, len(close)), adjust=False).mean()
+        ema50 = close.ewm(span=min(50, len(close)), adjust=False).mean()
+        ema200 = close.ewm(span=min(200, len(close)), adjust=False).mean() if len(close) >= 50 else ema50
+
+        # Rolling 20-day high and volume SMA
+        high_20d = high.shift(1).rolling(min(20, len(high))).max()
+        vol_ma20 = vol.rolling(min(20, len(vol))).mean()
+
+        # ATR 14
+        prev_close = close.shift(1)
+        tr = pd.concat([high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1).max(axis=1)
+        atr_series = tr.rolling(min(14, len(tr))).mean().fillna(close * 0.02)
+
+        buy_signals = pd.Series(np.nan, index=df.index)
+        exit_signals = pd.Series(np.nan, index=df.index)
+
+        in_pos = False
+        entry_p = 0.0
+        stop_p = 0.0
+        t1_p = 0.0
+        t2_p = 0.0
+        trail_p = 0.0
+        bars_since_buy = 999
+
+        for i in range(25, len(df)):
+            idx = df.index[i]
+            c = float(close.iloc[i])
+            h = float(high.iloc[i])
+            l = float(low.iloc[i])
+            op = float(o.iloc[i])
+            v = float(vol.iloc[i])
+            v_ma = float(vol_ma20.iloc[i]) if not np.isnan(vol_ma20.iloc[i]) else 1.0
+            v_ratio = (v / v_ma) if v_ma > 0 else 1.0
+            e20 = float(ema20.iloc[i])
+            e50 = float(ema50.iloc[i])
+            e200 = float(ema200.iloc[i])
+            e20_prev = float(ema20.iloc[i-1])
+            e50_prev = float(ema50.iloc[i-1])
+            h20 = float(high_20d.iloc[i]) if not np.isnan(high_20d.iloc[i]) else c
+            cur_atr = float(atr_series.iloc[i]) if not np.isnan(atr_series.iloc[i]) else c * 0.02
+
+            bars_since_buy += 1
+
+            if in_pos:
+                hit_exit = False
+                if l <= stop_p:
+                    hit_exit = True
+                elif trail_p > stop_p and l <= trail_p:
+                    hit_exit = True
+                elif h >= t2_p:
+                    hit_exit = True
+                elif c < e50 and float(close.iloc[i-1]) >= e50_prev and v_ratio >= 1.25:
+                    hit_exit = True
+
+                if hit_exit:
+                    exit_signals.loc[idx] = h * 1.02
+                    in_pos = False
+                else:
+                    new_trail = round(h - (2.0 * cur_atr), 2)
+                    trail_p = max(trail_p, new_trail)
+
+            if not in_pos and bars_since_buy >= 5:
+                is_breakout = (c >= h20 and c >= e50 and v_ratio >= 1.20)
+                is_pullback = (c >= e200 and abs(c - e50) / c < 0.035 and c >= op and c >= float(close.iloc[i-1]))
+                is_cross = (e20_prev <= e50_prev and e20 > e50 and c >= e200)
+
+                if is_breakout or is_pullback or is_cross:
+                    buy_signals.loc[idx] = l * 0.98
+                    in_pos = True
+                    entry_p = c
+                    stop_p = round(max(0.1, entry_p - (1.5 * cur_atr)), 2)
+                    risk = max(entry_p - stop_p, entry_p * 0.03)
+                    t1_p = round(entry_p + 1.5 * risk, 2)
+                    t2_p = round(entry_p + 2.5 * risk, 2)
+                    trail_p = stop_p
+                    bars_since_buy = 0
+
+        return {"buy_signals": buy_signals, "exit_signals": exit_signals}
+
+    def run_spot_backtest(self, bars_df: pd.DataFrame, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Pure Spot Cash Equity Long-Only Backtesting Simulator for CSE equities.
+        Takes into account Sri Lankan brokerage + CSE transaction fees (~1.12% roundtrip).
+        Simulates capital allocation, Target 1 (~1.5R), Target 2 (~2.5R), Stop Loss, and Trailing Stops.
+        """
+        if bars_df.empty or len(bars_df) < 30:
+            raise ValueError("Insufficient price data for backtest (minimum 30 daily bars required).")
+
+        df = bars_df.sort_index().copy()
+        close = df["close"]
+        high = df["high"]
+        low = df["low"]
+        vol = df["volume"]
+        op = df["open"] if "open" in df else close
+
+        initial_capital = float(params.get("initial_capital", 500000.0))
+        comm_rate = float(params.get("commission_pct", 1.12)) / 100.0
+        half_comm = comm_rate / 2.0
+        alloc_pct = float(params.get("allocation_pct", 100.0)) / 100.0
+        sl_atr_mult = float(params.get("sl_atr_mult", 1.5))
+        custom_sl_pct = float(params.get("stop_loss_pct", 0.0)) / 100.0
+        custom_tp_pct = float(params.get("take_profit_pct", 0.0)) / 100.0
+        t1_r = float(params.get("target1_r", 1.5))
+        t2_r = float(params.get("target2_r", 2.5))
+        strat_filter = str(params.get("strategy_mode", params.get("strategy", "all"))).lower()
+        use_trailing = bool(params.get("use_trailing", True))
+
+        ema20 = close.ewm(span=min(20, len(close)), adjust=False).mean()
+        ema50 = close.ewm(span=min(50, len(close)), adjust=False).mean()
+        ema200 = close.ewm(span=min(200, len(close)), adjust=False).mean() if len(close) >= 50 else ema50
+
+        high_20d = high.shift(1).rolling(min(20, len(high))).max()
+        vol_ma20 = vol.rolling(min(20, len(vol))).mean()
+
+        prev_close = close.shift(1)
+        tr = pd.concat([high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1).max(axis=1)
+        atr_series = tr.rolling(min(14, len(tr))).mean().fillna(close * 0.02)
+
+        cash = initial_capital
+        position = 0
+        shares = 0
+        entry_price = 0.0
+        entry_date = None
+        buy_cost = 0.0
+        stop_price = 0.0
+        trail_price = 0.0
+        target1 = 0.0
+        target2 = 0.0
+        t1_hit = False
+
+        trades = []
+        equity_records = []
+
+        start_idx = 25
+        for i in range(start_idx, len(df)):
+            dt = df.index[i]
+            date_str = dt.strftime("%Y-%m-%d") if hasattr(dt, "strftime") else str(dt)[:10]
+            c = float(close.iloc[i])
+            h = float(high.iloc[i])
+            l = float(low.iloc[i])
+            o_bar = float(op.iloc[i])
+            v = float(vol.iloc[i])
+            v_avg = float(vol_ma20.iloc[i]) if not np.isnan(vol_ma20.iloc[i]) else 1.0
+            v_ratio = (v / v_avg) if v_avg > 0 else 1.0
+
+            e20 = float(ema20.iloc[i])
+            e50 = float(ema50.iloc[i])
+            e200 = float(ema200.iloc[i])
+            e20_prev = float(ema20.iloc[i-1])
+            e50_prev = float(ema50.iloc[i-1])
+            c_prev = float(close.iloc[i-1])
+            h20 = float(high_20d.iloc[i]) if not np.isnan(high_20d.iloc[i]) else c
+            cur_atr = float(atr_series.iloc[i]) if not np.isnan(atr_series.iloc[i]) else max(c * 0.02, 0.5)
+
+            if position == 1:
+                exit_reason = None
+                exit_price = 0.0
+
+                if custom_sl_pct > 0 and l <= entry_price * (1 - custom_sl_pct):
+                    exit_reason = "Stop Loss"
+                    exit_price = round(entry_price * (1 - custom_sl_pct), 2)
+                elif l <= stop_price:
+                    exit_reason = "Stop Loss"
+                    exit_price = stop_price
+                elif use_trailing and trail_price > stop_price and l <= trail_price:
+                    exit_reason = "Trailing Stop"
+                    exit_price = trail_price
+                elif custom_tp_pct > 0 and h >= entry_price * (1 + custom_tp_pct):
+                    exit_reason = "Take Profit"
+                    exit_price = round(entry_price * (1 + custom_tp_pct), 2)
+                elif h >= target2:
+                    exit_reason = "Target 2 Hit"
+                    exit_price = target2
+                elif h >= target1 and not t1_hit:
+                    t1_hit = True
+                    trail_price = max(trail_price, entry_price)
+                elif c < e50 and c_prev >= e50_prev and v_ratio >= 1.25:
+                    exit_reason = "Trend Breakdown"
+                    exit_price = c
+
+                if exit_reason:
+                    sell_val = shares * exit_price
+                    sell_fee = sell_val * half_comm
+                    net_proceeds = sell_val - sell_fee
+                    net_pnl = net_proceeds - buy_cost
+                    ret_pct = ((exit_price - entry_price) / entry_price) * 100.0
+
+                    cash += net_proceeds
+                    trades.append({
+                        "entry_date": entry_date,
+                        "exit_date": date_str,
+                        "side": "BUY",
+                        "entry_price": round(entry_price, 2),
+                        "exit_price": round(exit_price, 2),
+                        "return_pct": round(ret_pct, 2),
+                        "pnl": round(net_pnl, 2),
+                        "exit_reason": exit_reason,
+                    })
+                    position = 0
+                    shares = 0
+                else:
+                    if use_trailing:
+                        new_trail = round(h - (2.0 * cur_atr), 2)
+                        trail_price = max(trail_price, new_trail)
+
+            if position == 0:
+                is_breakout = (c >= h20 and c >= e50 and v_ratio >= 1.20)
+                is_pullback = (c >= e200 and abs(c - e50) / c < 0.035 and c >= o_bar and c >= c_prev)
+                is_cross = (e20_prev <= e50_prev and e20 > e50 and c >= e200)
+
+                trigger_buy = False
+                if strat_filter in ["breakout", "🚀 breakout buy"]:
+                    trigger_buy = is_breakout
+                elif strat_filter in ["pullback", "💎 pullback buy"]:
+                    trigger_buy = is_pullback
+                elif strat_filter in ["cross", "golden_cross", "⚡ golden cross buy"]:
+                    trigger_buy = is_cross
+                else:
+                    trigger_buy = (is_breakout or is_pullback or is_cross)
+
+                if trigger_buy and c > 0:
+                    entry_price = c
+                    entry_date = date_str
+                    risk_dist = max(sl_atr_mult * cur_atr, entry_price * 0.03)
+                    stop_price = round(max(0.1, entry_price - risk_dist), 2)
+                    trail_price = stop_price
+                    target1 = round(entry_price + (t1_r * risk_dist), 2)
+                    target2 = round(entry_price + (t2_r * risk_dist), 2)
+                    t1_hit = False
+
+                    trade_alloc = cash * alloc_pct
+                    shares = int(trade_alloc // entry_price)
+                    if shares > 0:
+                        trade_gross = shares * entry_price
+                        buy_fee = trade_gross * half_comm
+                        buy_cost = trade_gross + buy_fee
+                        cash -= buy_cost
+                        position = 1
+
+            cur_holding_val = (shares * c) if position == 1 else 0.0
+            cur_equity = cash + cur_holding_val
+            equity_records.append({"date": dt, "equity": round(cur_equity, 2)})
+
+        if position == 1 and shares > 0:
+            last_c = float(close.iloc[-1])
+            sell_val = shares * last_c
+            sell_fee = sell_val * half_comm
+            net_proceeds = sell_val - sell_fee
+            net_pnl = net_proceeds - buy_cost
+            ret_pct = ((last_c - entry_price) / entry_price) * 100.0
+            cash += net_proceeds
+            trades.append({
+                "entry_date": entry_date,
+                "exit_date": df.index[-1].strftime("%Y-%m-%d") if hasattr(df.index[-1], "strftime") else str(df.index[-1])[:10],
+                "side": "BUY",
+                "entry_price": round(entry_price, 2),
+                "exit_price": round(last_c, 2),
+                "return_pct": round(ret_pct, 2),
+                "pnl": round(net_pnl, 2),
+                "exit_reason": "Open Position (Mark-to-Market)",
+            })
+            equity_records[-1]["equity"] = round(cash, 2)
+
+        trades_df = pd.DataFrame(trades)
+        equity_df = pd.DataFrame(equity_records).set_index("date") if equity_records else pd.DataFrame({"equity": [initial_capital]})
+
+        final_equity = equity_records[-1]["equity"] if equity_records else initial_capital
+        total_ret = round(((final_equity - initial_capital) / initial_capital) * 100.0, 2)
+
+        n_trades = len(trades)
+        if n_trades > 0:
+            wins = [t for t in trades if t["pnl"] > 0]
+            losses = [t for t in trades if t["pnl"] <= 0]
+            win_rate = round((len(wins) / n_trades) * 100.0, 1)
+            gross_win = sum(t["pnl"] for t in wins)
+            gross_loss = abs(sum(t["pnl"] for t in losses))
+            profit_factor = round(gross_win / gross_loss, 2) if gross_loss > 0 else (99.9 if gross_win > 0 else 0.0)
+            avg_win = round(gross_win / len(wins), 2) if wins else 0.0
+            avg_loss = round(gross_loss / len(losses), 2) if losses else 0.0
+        else:
+            win_rate = 0.0
+            profit_factor = 0.0
+            avg_win = 0.0
+            avg_loss = 0.0
+
+        if not equity_df.empty and "equity" in equity_df.columns:
+            peak = equity_df["equity"].cummax()
+            dd = (equity_df["equity"] - peak) / peak * 100.0
+            max_dd = round(abs(float(dd.min())), 2)
+        else:
+            max_dd = 0.0
+
+        stats = {
+            "Total Return (%)": total_ret,
+            "Total Trades": n_trades,
+            "Win Rate (%)": win_rate,
+            "Profit Factor": profit_factor,
+            "Avg. Win (LKR)": avg_win,
+            "Avg. Loss (LKR)": avg_loss,
+            "Max. Drawdown (%)": max_dd,
+            "Net Profit (LKR)": round(final_equity - initial_capital, 2),
+            "Final Capital (LKR)": round(final_equity, 2),
+        }
+
+        return {
+            "stats": stats,
+            "equity_curve": equity_df,
+            "trades": trades_df,
+        }
+
+    def run_backtest(self, symbol: str = "", params: Dict[str, Any] = None, **kwargs) -> Dict[str, Any]:
+        if params is None:
+            params = {}
+        params.update(kwargs)
+        if not symbol and "symbol" in params:
+            symbol = params["symbol"]
+        bars_df = self.get_bars(symbol)
+        if bars_df.empty:
+            raise ValueError(f"No price bars found for symbol '{symbol}'")
+        return self.run_spot_backtest(bars_df, params)
 
     def run_quick_backtest(
         self,

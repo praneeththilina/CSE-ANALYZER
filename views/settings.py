@@ -1,7 +1,7 @@
 # views/settings.py  –  Settings & Configuration Tab (Windows 11 Colorful UI)
 """
-Application settings: database path, QQE defaults, Telegram config,
-Gemini API key, theme toggle, and about info styled with colorful FormCards.
+Application settings: database path, spot equity defaults, Telegram config,
+theme selector, and about info styled for Windows 11 Fluent Light.
 """
 from __future__ import annotations
 
@@ -46,35 +46,39 @@ class SettingsTab(ttk.Frame):
                   state="readonly").pack(side="left", padx=(0, 8), fill="x", expand=True)
         ttk.Button(db_row, text="📂 Browse", command=self._browse_db).pack(side="left")
 
-        # ── QQE Defaults Colorful Card ──────────────────────────────────
-        self.qqe_card = FormCard(
+        # ── CSE Spot Defaults Colorful Card ─────────────────────────────
+        self.strat_card = FormCard(
             self,
-            title="Default QQE Strategy Parameters",
-            accent_color="#4f46e5",
-            bg_color="#f8faff",
-            border_color="#c7d2fe",
-            icon="⚡",
+            title="Default CSE Spot Equity & Risk Parameters",
+            accent_color="#059669",
+            bg_color="#f0fdf4",
+            border_color="#86efac",
+            icon="⚖",
         )
-        self.qqe_card.pack(fill="x", pady=(0, 8))
+        self.strat_card.pack(fill="x", pady=(0, 8))
 
-        qqe_row = tk.Frame(self.qqe_card.body, bg="#f8faff")
-        qqe_row.pack(fill="x")
+        strat_row = tk.Frame(self.strat_card.body, bg="#f0fdf4")
+        strat_row.pack(fill="x")
 
-        tk.Label(qqe_row, text="RSI Period:", font=FONT_BODY, bg="#f8faff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
-        self.rsi_var = tk.IntVar(value=14)
-        ttk.Spinbox(qqe_row, from_=2, to=50, textvariable=self.rsi_var, width=5).pack(side="left", padx=(0, 20))
+        tk.Label(strat_row, text="Default Capital (LKR):", font=FONT_BODY, bg="#f0fdf4", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
+        self.def_capital_var = tk.StringVar(value="500000")
+        ttk.Entry(strat_row, textvariable=self.def_capital_var, width=10).pack(side="left", padx=(0, 16))
 
-        tk.Label(qqe_row, text="SF:", font=FONT_BODY, bg="#f8faff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
-        self.sf_var = tk.IntVar(value=5)
-        ttk.Spinbox(qqe_row, from_=1, to=20, textvariable=self.sf_var, width=5).pack(side="left", padx=(0, 20))
+        tk.Label(strat_row, text="Risk / Trade %:", font=FONT_BODY, bg="#f0fdf4", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
+        self.def_risk_var = tk.DoubleVar(value=2.0)
+        ttk.Spinbox(strat_row, from_=0.5, to=10.0, increment=0.5, textvariable=self.def_risk_var, width=5).pack(side="left", padx=(0, 16))
 
-        tk.Label(qqe_row, text="QQE Factor:", font=FONT_BODY, bg="#f8faff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
-        self.qqe_var = tk.DoubleVar(value=4.238)
-        ttk.Entry(qqe_row, textvariable=self.qqe_var, width=7).pack(side="left", padx=(0, 20))
+        tk.Label(strat_row, text="CSE Fees %:", font=FONT_BODY, bg="#f0fdf4", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
+        self.def_comm_var = tk.StringVar(value="1.12")
+        ttk.Entry(strat_row, textvariable=self.def_comm_var, width=6).pack(side="left", padx=(0, 16))
 
-        tk.Label(qqe_row, text="Threshold:", font=FONT_BODY, bg="#f8faff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
-        self.thresh_var = tk.IntVar(value=10)
-        ttk.Spinbox(qqe_row, from_=1, to=50, textvariable=self.thresh_var, width=5).pack(side="left")
+        tk.Label(strat_row, text="Target 1 (R:R):", font=FONT_BODY, bg="#f0fdf4", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
+        self.def_t1_var = tk.DoubleVar(value=1.5)
+        ttk.Spinbox(strat_row, from_=1.0, to=5.0, increment=0.5, textvariable=self.def_t1_var, width=5).pack(side="left", padx=(0, 16))
+
+        tk.Label(strat_row, text="Target 2 (R:R):", font=FONT_BODY, bg="#f0fdf4", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
+        self.def_t2_var = tk.DoubleVar(value=2.5)
+        ttk.Spinbox(strat_row, from_=1.5, to=8.0, increment=0.5, textvariable=self.def_t2_var, width=5).pack(side="left")
 
         # ── Telegram Colorful Card ──────────────────────────────────────
         self.tg_card = FormCard(
