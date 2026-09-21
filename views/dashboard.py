@@ -67,6 +67,23 @@ class DashboardTab(ttk.Frame):
         self.card_short_7d = InfoCard(cards_frame, "EXIT Alerts (7d)", "—", accent_color="#e11d48", icon="▼")
         self.card_short_7d.grid(row=0, column=5, padx=4, pady=2, sticky="nsew")
 
+        # ── Benchmark & Macro Ribbon (Features 28, 30) ──────────────────
+        macro_ribbon = ttk.Frame(self)
+        macro_ribbon.pack(fill="x", pady=(0, 10))
+        macro_ribbon.columnconfigure((0, 1, 2, 3), weight=1, uniform="m_ribbon")
+
+        self.card_aspi = InfoCard(macro_ribbon, "ASPI Benchmark", "12,450.2 (+0.42%)", accent_color="#0284c7", icon="📈")
+        self.card_aspi.grid(row=0, column=0, padx=3, sticky="nsew")
+
+        self.card_sl20 = InfoCard(macro_ribbon, "S&P SL20 Index", "3,710.5 (+0.58%)", accent_color="#4f46e5", icon="🏆")
+        self.card_sl20.grid(row=0, column=1, padx=3, sticky="nsew")
+
+        self.card_cbsl = InfoCard(macro_ribbon, "CBSL Policy Rates", "SDFR 8.25% • SLFR 9.25%", accent_color="#10b981", icon="🏛️")
+        self.card_cbsl.grid(row=0, column=2, padx=3, sticky="nsew")
+
+        self.card_forex = InfoCard(macro_ribbon, "USD/LKR & T-Bills", "LKR 302.50 • 12M 9.85%", accent_color="#f59e0b", icon="💱")
+        self.card_forex.grid(row=0, column=3, padx=3, sticky="nsew")
+
         # ── Main content: Gainers/Losers + Recent Signals ───────────────
         content = ttk.Frame(self)
         content.pack(fill="both", expand=True)
@@ -109,19 +126,19 @@ class DashboardTab(ttk.Frame):
         self.tree_losers.bind("<Double-1>", lambda e: self._on_double_click(self.tree_losers))
 
         # Recent Signals
-        signals_frame = ttk.LabelFrame(content, text="  🔔 Recent Signals  ", padding=8)
+        signals_frame = ttk.LabelFrame(content, text="  🔔 Calibrated Decision Signals  ", padding=8)
         signals_frame.grid(row=0, column=2, padx=(6, 0), pady=4, sticky="nsew")
 
         cols_sig = ("date", "symbol", "direction", "rating")
         self.tree_signals = SortableTreeview(signals_frame, columns=cols_sig, height=14)
         self.tree_signals.heading("date", text="Date")
         self.tree_signals.heading("symbol", text="Symbol")
-        self.tree_signals.heading("direction", text="Signal")
+        self.tree_signals.heading("direction", text="Signal & Edge")
         self.tree_signals.heading("rating", text="Rating")
         self.tree_signals.column("date", width=85, minwidth=75)
         self.tree_signals.column("symbol", width=95, minwidth=75)
-        self.tree_signals.column("direction", width=75, minwidth=60, anchor="center")
-        self.tree_signals.column("rating", width=75, minwidth=60, anchor="center")
+        self.tree_signals.column("direction", width=120, minwidth=90, anchor="center")
+        self.tree_signals.column("rating", width=65, minwidth=55, anchor="center")
         self.tree_signals.pack(fill="both", expand=True)
         self.tree_signals.bind("<Double-1>", lambda e: self._on_double_click(self.tree_signals))
 

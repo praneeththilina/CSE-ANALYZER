@@ -18,6 +18,14 @@ import pandas as pd
 import stocks
 import qqe_backtest_signals as qbs
 
+from core.technical_engine import TechnicalEngine
+from core.fundamental_engine import FundamentalEngine
+from core.market_context_engine import MarketContextEngine
+from core.news_events_engine import NewsEventsEngine
+from core.ml_engine import MLEngine
+from core.backtest_engine import BacktestEngine
+from core.risk_scorecard_engine import RiskScorecardEngine
+
 
 class DataEngine:
     """Singleton-ish data access object."""
@@ -1820,4 +1828,512 @@ class DataEngine:
 
         self._company_profile_cache[clean_sym] = profile
         return profile
+
+    # ── Data Infrastructure & Quality (Features 1–7) ────────────────────
+
+    def clean_bars_data(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Clean bars data for missing days, zero-volume days, and bad ticks (Feature 4)."""
+        if df.empty:
+            return df
+        df = df.copy()
+
+        # Remove duplicate index timestamps if any
+        df = df[~df.index.duplicated(keep="last")].sort_index()
+
+        # Ensure numeric types and handle non-positive prices
+        for col in ["close", "high", "low"]:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+                df = df[df[col] > 0]
+
+        if "volume" in df.columns:
+            df["volume"] = pd.to_numeric(df["volume"], errors="coerce").fillna(0)
+
+        # Flag and filter extreme bad ticks (> 50% jump in 1 bar that reverses immediately)
+        if len(df) >= 3:
+            ret = df["close"].pct_change()
+            bad_spike = (ret.abs() > 0.50) & (df["close"].pct_change(-1).abs() > 0.40) & (np.sign(ret) != np.sign(df["close"].pct_change(-1)))
+            if bad_spike.any():
+                df.loc[bad_spike, "close"] = (df["close"].shift(1) + df["close"].shift(-1)) / 2.0
+
+        return df
+
+    def adjust_corporate_actions(
+        self,
+        df: pd.DataFrame,
+        split_ratio: float = 1.0,
+        dividend_adjustment_lkr: float = 0.0
+    ) -> pd.DataFrame:
+        """Adjust historical prices for stock splits and dividends (Feature 5)."""
+        if df.empty:
+            return df
+        df = df.copy()
+
+        if split_ratio != 1.0 and split_ratio > 0:
+            df["close"] = df["close"] / split_ratio
+            df["high"] = df["high"] / split_ratio
+            df["low"] = df["low"] / split_ratio
+            if "open" in df.columns:
+                df["open"] = df["open"] / split_ratio
+            if "volume" in df.columns:
+                df["volume"] = df["volume"] * split_ratio
+
+        if dividend_adjustment_lkr > 0:
+            df["close"] = (df["close"] - dividend_adjustment_lkr).clip(lower=0.1)
+
+        return df
+
+    def validate_data_quality(self, symbol: str, df: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
+        """Validate historical data quality, flagging gaps, zero-volume spells, or tick jumps (Feature 6)."""
+        if df is None:
+            df = self.get_bars(symbol)
+
+        if df.empty:
+            return {"symbol": symbol, "status": "Error", "is_healthy": False, "issues": ["No historical bars found."]}
+
+        issues: List[str] = []
+        n_bars = len(df)
+
+        if n_bars < 30:
+            issues.append(f"Short historical depth ({n_bars} bars, recommended >= 50).")
+
+        # Zero volume days
+        if "volume" in df.columns:
+            zero_vol_pct = (df["volume"] == 0).sum() / float(n_bars) * 100.0
+            if zero_vol_pct > 40.0:
+                issues.append(f"High illiquidity: {zero_vol_pct:.1f}% of trading days have zero recorded volume.")
+
+        # Large price gaps (> 25% single-day jump)
+        if len(df) >= 2:
+            max_jump = float(df["close"].pct_change().abs().max()) * 100.0
+            if max_jump >= 25.0:
+                issues.append(f"Significant price jump ({max_jump:.1f}%) detected.")
+
+        is_healthy = len(issues) == 0
+        return {
+            "symbol": symbol,
+            "total_bars": n_bars,
+            "status": "Healthy" if is_healthy else "Review Required",
+            "is_healthy": is_healthy,
+            "issues": issues,
+            "last_date": str(df.index[-1].strftime("%Y-%m-%d")) if isinstance(df.index, pd.DatetimeIndex) else "—"
+        }
+
+    def get_universe_by_sector(self) -> Dict[str, List[Dict[str, Any]]]:
+        """Universe manager with sector grouping (Feature 7)."""
+        all_syms = self.get_all_symbols()
+        sectors: Dict[str, List[Dict[str, Any]]] = {}
+        for s in all_syms:
+            sec = s.get("industry") or "Unclassified"
+            if sec not in sectors:
+                sectors[sec] = []
+            sectors[sec].append(s)
+        return sectors
+
+    # ── Unified Analytical Suite (Features 8–50) ────────────────────────
+
+    def get_company_name(self, symbol: str) -> str:
+        """Return human-readable company name from local mapping or symbol string."""
+        clean = symbol.split(".")[0].strip().upper()
+        cse_names = {
+            "COMB": "Commercial Bank of Ceylon",
+            "JKH": "John Keells Holdings",
+            "SAMP": "Sampath Bank",
+            "HNB": "Hatton National Bank",
+            "DIST": "Distilleries Company",
+            "MELS": "Melstacorp PLC",
+            "LOLC": "LOLC Holdings",
+            "DIAL": "Dialog Axiata",
+            "HAYL": "Hayleys PLC",
+            "CARG": "Cargills (Ceylon)",
+            "LION": "Lion Brewery Ceylon",
+            "CTC": "Ceylon Tobacco Company",
+            "AEL": "Access Engineering",
+            "RICH": "Richard Pieris & Co",
+            "EXPO": "Expolanka Holdings",
+            "SLTL": "Sri Lanka Telecom",
+            "VONE": "Vallibel One",
+            "DIPD": "Dipped Products",
+            "ACL": "ACL Cables",
+            "TKYO": "Tokyo Cement Company"
+        }
+        return cse_names.get(clean, symbol)
+
+    def get_company_profile(self, symbol: str) -> Dict[str, Any]:
+        """Alias for get_formatted_company_profile."""
+        return self.get_formatted_company_profile(symbol)
+
+    def get_technical_analysis(self, symbol: str) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+        """Run technical suite (Features 9–20) on a CSE stock."""
+        df = self.get_bars(symbol)
+        df = self.clean_bars_data(df)
+        return TechnicalEngine.analyze_full_technical_suite(df)
+
+    def get_fundamental_profile(self, symbol: str) -> Dict[str, Any]:
+        """Generate fundamental valuation profile (Features 21–27)."""
+        latest_prices = self.get_latest_prices()
+        current_price = latest_prices.get(symbol, 50.0)
+        industries = self.get_symbol_industries()
+        industry = industries.get(symbol, "Diversified Financials")
+        name = self.get_company_name(symbol)
+        return FundamentalEngine.generate_fundamental_profile(symbol, name, industry, current_price)
+
+    def get_market_context(self, symbol: str) -> Dict[str, Any]:
+        """Compute benchmark comparison, liquidity, and circuit limit status (Features 28, 32, 33)."""
+        df = self.get_bars(symbol)
+        df = self.clean_bars_data(df)
+        rs_data = MarketContextEngine.compute_benchmark_relative_strength(df)
+        liq_data = MarketContextEngine.compute_liquidity_and_days_to_exit(df)
+        latest_prices = self.get_latest_prices()
+        curr_price = latest_prices.get(symbol, 50.0)
+        prev_close = float(df["close"].iloc[-2]) if len(df) >= 2 else curr_price
+        circuit_data = MarketContextEngine.check_circuit_breakers_and_bands(curr_price, prev_close)
+
+        combined = {}
+        combined.update(rs_data)
+        combined.update(liq_data)
+        combined.update(circuit_data)
+        return combined
+
+    def get_ml_prediction(self, symbol: str) -> Dict[str, Any]:
+        """Extract multi-factor feature vector and compute calibrated outperformance probability (Features 37–41)."""
+        df = self.get_bars(symbol)
+        df = self.clean_bars_data(df)
+        fund = self.get_fundamental_profile(symbol)
+        mkt = self.get_market_context(symbol)
+        features = MLEngine.extract_feature_vector(df, fundamental_profile=fund, market_context=mkt)
+        pred = MLEngine.predict_calibrated_outperformance(features)
+        pred["anomaly_check"] = MLEngine.detect_anomalies(df)
+        pred["trend_forecast"] = MLEngine.forecast_baseline_trend(df)
+        return pred
+
+    def get_composite_scorecard(self, symbol: str) -> Dict[str, Any]:
+        """Generate unified 4-tier decision scorecard with ABSTAIN MODE and SHAP factors (Feature 49)."""
+        df, tech_summary = self.get_technical_analysis(symbol)
+        latest_prices = self.get_latest_prices()
+        curr_price = latest_prices.get(symbol, float(df["close"].iloc[-1]) if not df.empty else 50.0)
+        fund = self.get_fundamental_profile(symbol)
+        mkt = self.get_market_context(symbol)
+        features = MLEngine.extract_feature_vector(df, fundamental_profile=fund, market_context=mkt)
+        ml_pred = MLEngine.predict_calibrated_outperformance(features)
+
+        name = self.get_company_name(symbol)
+
+        return RiskScorecardEngine.generate_composite_scorecard(
+            symbol=symbol,
+            name=name,
+            current_price=curr_price,
+            technical_summary=tech_summary,
+            fundamental_profile=fund,
+            market_context=mkt,
+            ml_prediction=ml_pred
+        )
+
+    def run_spot_backtest(
+        self,
+        symbol: Union[str, pd.DataFrame],
+        starting_capital: float = 1_000_000.0,
+        risk_per_trade_pct: float = 2.0,
+        target1_rr: float = 1.5,
+        target2_rr: float = 2.5,
+        atr_stop_multiplier: float = 1.5,
+        slippage_pct: float = 0.3
+    ) -> Dict[str, Any]:
+        """Run realistic CSE spot equity backtest with 1.12% fees and slippage (Feature 44)."""
+        if isinstance(symbol, pd.DataFrame):
+            df = symbol
+        else:
+            df = self.get_bars(symbol)
+        df = self.clean_bars_data(df)
+        return BacktestEngine.run_spot_backtest(
+            df=df,
+            starting_capital=starting_capital,
+            risk_per_trade_pct=risk_per_trade_pct,
+            target1_rr=target1_rr,
+            target2_rr=target2_rr,
+            atr_stop_multiplier=atr_stop_multiplier,
+            slippage_pct=slippage_pct
+        )
+
+    def run_backtest(
+        self,
+        symbol: str,
+        capital: float = 1_000_000.0,
+        commission_pct: float = 1.12,
+        allocation_pct: float = 100.0,
+        strategy_mode: str = "all",
+        target1_rr: float = 1.5,
+        target2_rr: float = 2.5,
+        sl_atr: float = 1.5,
+        use_trailing: bool = True
+    ) -> Dict[str, Any]:
+        """Run spot equity backtest and return structured dictionaries for BacktestTab UI."""
+        raw = self.run_spot_backtest(
+            symbol=symbol,
+            starting_capital=float(capital),
+            target1_rr=float(target1_rr),
+            target2_rr=float(target2_rr),
+            atr_stop_multiplier=float(sl_atr)
+        )
+        trades = raw.get("trades", [])
+        trades_df = pd.DataFrame(trades) if trades else pd.DataFrame()
+        if not trades_df.empty:
+            trades_df["return_pct"] = trades_df["pnl_pct"]
+            trades_df["pnl"] = trades_df["pnl_lkr"]
+
+        eq_curve = raw.get("equity_curve", [])
+        equity_df = pd.DataFrame(eq_curve) if eq_curve else pd.DataFrame()
+        if not equity_df.empty:
+            equity_df["equity"] = equity_df["portfolio_value"]
+
+        stats = {
+            "Total Return (%)": f"{raw.get('return_pct', 0.0):.2f}",
+            "Total Trades": raw.get("total_trades", 0),
+            "Win Rate (%)": f"{raw.get('win_rate_pct', 0.0):.1f}",
+            "Profit Factor": f"{raw.get('profit_factor', 0.0):.2f}",
+            "Avg. Win (LKR)": raw.get("avg_win_pct", 0.0) * float(capital) / 100.0,
+            "Avg. Loss (LKR)": raw.get("avg_loss_pct", 0.0) * float(capital) / 100.0,
+            "Max. Drawdown (%)": f"{raw.get('max_drawdown_pct', 0.0):.2f}",
+            "Net Profit (LKR)": raw.get("net_profit_lkr", 0.0),
+            "Benchmark Excess (%)": raw.get("excess_return_vs_aspi", 0.0)
+        }
+        return {
+            "stats": stats,
+            "equity_curve": equity_df,
+            "trades": trades_df,
+            "raw": raw
+        }
+
+    def run_walk_forward_validation(self, symbol: Union[str, pd.DataFrame], n_splits: int = 3) -> Dict[str, Any]:
+        """Run rolling walk-forward backtest validation to prevent lookahead overfitting (Feature 45)."""
+        if isinstance(symbol, pd.DataFrame):
+            df = symbol
+        else:
+            df = self.get_bars(symbol)
+        df = self.clean_bars_data(df)
+        return BacktestEngine.run_walk_forward_validation(df, n_splits=n_splits)
+
+    run_walk_forward = run_walk_forward_validation
+
+    def get_macro_overlay(self) -> Dict[str, Any]:
+        """Get macroeconomic data overlay (CBSL rates, inflation, T-bills, USD/LKR) (Feature 30)."""
+        return MarketContextEngine.get_macro_overlay()
+
+    def get_sector_rotation(self) -> List[Dict[str, Any]]:
+        """Get sector rotation performance heatmap (Feature 29)."""
+        universe = self.get_universe_by_sector()
+        return MarketContextEngine.compute_sector_rotation_matrix(universe)
+
+    def get_news_and_events(self, symbol: Optional[str] = None) -> Dict[str, Any]:
+        """Get corporate announcements and financial event calendar (Features 34–36)."""
+        return {
+            "announcements": NewsEventsEngine.get_recent_announcements(symbol),
+            "calendar": NewsEventsEngine.get_event_calendar()
+        }
+
+    def calculate_position_size(
+        self,
+        account_capital: float,
+        entry_price: float,
+        stop_loss_price: float,
+        risk_pct: float = 1.5,
+        max_allocation_pct: float = 25.0,
+        avg_daily_volume: int = 50000
+    ) -> Dict[str, Any]:
+        """Calculate optimal position sizing and stops (Feature 47)."""
+        return RiskScorecardEngine.calculate_position_size(
+            account_capital=account_capital,
+            entry_price=entry_price,
+            stop_loss_price=stop_loss_price,
+            risk_pct=risk_pct,
+            max_capital_allocation_pct=max_allocation_pct,
+            avg_daily_volume=avg_daily_volume
+        )
+
+    def evaluate_portfolio_risk(self, holdings: List[Dict[str, Any]], cash: float = 0.0) -> Dict[str, Any]:
+        """Evaluate portfolio risk, VaR 95%, and concentration warnings (Feature 48)."""
+        return RiskScorecardEngine.evaluate_portfolio_risk(holdings, portfolio_cash=cash)
+
+    def scan_equity_signals(
+        self,
+        strategy_mode: str = "all",
+        min_score: int = 50,
+        min_vol: float = 1.0,
+        limit: int = 50
+    ) -> List[Dict[str, Any]]:
+        """
+        Scan enabled CSE equities using the 50-feature decision pipeline:
+        - Evaluates Spot BUY Setups (Breakout, Pullback, Golden Cross) and EXIT areas
+        - Evaluates Calibrated Probability with ABSTAIN MODE
+        - Evaluates Confluence Score (0 to 100) and Grades (A+, A, B, C)
+        - Computes exact Entry Zones, Stop Loss, Target 1, Target 2, and Liquidity Tiers
+        """
+        symbols = self.get_symbol_list()
+        results: List[Dict[str, Any]] = []
+
+        latest_prices = self.get_latest_prices()
+        industries = self.get_symbol_industries()
+
+        # Batch load all bars in single indexed query for instantaneous scan execution
+        con = self.connect()
+        bars_by_symbol: Dict[str, list] = {}
+        try:
+            raw_bars = con.execute("SELECT symbol, date, close, high, low, volume FROM bars ORDER BY symbol, date").fetchall()
+            for r in raw_bars:
+                bars_by_symbol.setdefault(r[0], []).append(r[1:])
+        finally:
+            con.close()
+
+        for sym in symbols:
+            try:
+                sym_rows = bars_by_symbol.get(sym, [])
+                if not sym_rows or len(sym_rows) < 25:
+                    continue
+
+                df = pd.DataFrame(sym_rows, columns=["date", "close", "high", "low", "volume"])
+                df["date"] = pd.to_datetime(df["date"])
+                df = df.set_index("date").sort_index()
+                for col in ["close", "high", "low", "volume"]:
+                    df[col] = pd.to_numeric(df[col], errors="coerce")
+                df["volume"] = df["volume"].fillna(0)
+                df["open"] = df["close"].shift(1)
+                if not df.empty:
+                    df.iloc[0, df.columns.get_loc("open")] = df.iloc[0]["close"]
+
+                df = self.clean_bars_data(df)
+                if df.empty or len(df) < 25:
+                    continue
+
+                c = float(df["close"].iloc[-1])
+                price = latest_prices.get(sym, c)
+                industry = industries.get(sym, "Diversified")
+                name = self.get_company_name(sym)
+
+                # Fast vectorized technical evaluation
+                df = TechnicalEngine.compute_moving_averages(df)
+                df = TechnicalEngine.compute_rsi(df)
+                df = TechnicalEngine.compute_atr_and_volatility(df)
+                df = TechnicalEngine.compute_volume_analysis(df)
+                breakout = TechnicalEngine.check_breakouts(df)
+
+                last_bar = df.iloc[-1]
+                vol_surge = float(last_bar.get("volume_surge", 1.0))
+                if vol_surge < (min_vol * 0.8) and min_vol > 1.2:
+                    continue
+
+                # Quick fundamental profile
+                fund = FundamentalEngine.generate_fundamental_profile(sym, name, industry, price)
+                f_score = fund.get("piotroski", {}).get("f_score", 5)
+
+                # Quick liquidity & relative strength
+                liq = MarketContextEngine.compute_liquidity_and_days_to_exit(df)
+                ret_20d = float((c / df["close"].iloc[-min(21, len(df))]) - 1.0) * 100.0
+                rs_data = {"rs_momentum_20d_pct": round(ret_20d - 0.8, 1), "beta": 1.0}
+
+                # ML Calibrated prediction
+                features = MLEngine.extract_feature_vector(df, fundamental_profile=fund, market_context=rs_data)
+                ml_pred = MLEngine.predict_calibrated_outperformance(features)
+                calibrated_prob = ml_pred.get("calibrated_prob_pct", 50.0)
+                is_abstain = ml_pred.get("abstain_mode", False)
+
+                # Setup conditions
+                ema21 = float(last_bar.get("ema_21", c))
+                ema50 = float(last_bar.get("ema_50", c))
+                ema200 = float(last_bar.get("ema_200", c))
+                rsi = float(last_bar.get("rsi", 50.0))
+                atr_val = float(last_bar.get("atr", c * 0.03))
+
+                is_breakout = bool(breakout.get("is_20d_breakout", False)) or bool(breakout.get("is_52w_high", False))
+                is_pullback = c >= ema200 and (c <= ema21 * 1.02 and c >= ema50 * 0.98) and rsi >= 45
+                is_golden_cross = bool(last_bar.get("golden_cross", False)) or bool(last_bar.get("bull_cross_20_50", False))
+
+                # Confluence score
+                score = 30
+                if c > ema50 > ema200:
+                    score += 20
+                if 50 < rsi < 70:
+                    score += 15
+                if vol_surge >= 1.25:
+                    score += 15
+                if f_score >= 6:
+                    score += 10
+                if rs_data.get("rs_momentum_20d_pct", 0) > 0:
+                    score += 10
+
+                score = min(98, score)
+                if score < min_score:
+                    continue
+
+                grade = "A+" if score >= 85 else ("A" if score >= 70 else ("B" if score >= 55 else "C"))
+                stars = "⭐⭐⭐⭐⭐" if grade == "A+" else ("⭐⭐⭐⭐" if grade == "A" else ("⭐⭐⭐" if grade == "B" else "⭐⭐"))
+
+                # Action and setup text
+                action = "HOLD"
+                signal_text = "Consolidation"
+
+                if is_abstain:
+                    action = "ABSTAIN"
+                    signal_text = "⚠️ No Clear Edge"
+                elif is_breakout:
+                    action = "BUY"
+                    signal_text = "🚀 Momentum Breakout"
+                elif is_pullback:
+                    action = "BUY"
+                    signal_text = "💎 Value Pullback"
+                elif is_golden_cross:
+                    action = "BUY"
+                    signal_text = "⚡ Golden Cross"
+                elif rsi >= 75:
+                    action = "EXIT"
+                    signal_text = "🎯 Overbought / Take Profit"
+                elif c < ema50 * 0.96:
+                    action = "EXIT"
+                    signal_text = "🔻 Trend Breakdown"
+
+                # Strategy mode filtering
+                if strategy_mode == "breakout" and "Breakout" not in signal_text:
+                    continue
+                elif strategy_mode == "pullback" and "Pullback" not in signal_text:
+                    continue
+                elif strategy_mode == "golden_cross" and "Golden Cross" not in signal_text:
+                    continue
+                elif strategy_mode == "exit_only" and action != "EXIT":
+                    continue
+
+                stop_dist = max(atr_val * 1.5, c * 0.025)
+                stop_loss = round(c - stop_dist, 2)
+                trailing_stop = round(c - (atr_val * 1.5), 2)
+                target1 = round(c + (stop_dist * 1.5), 2)
+                target2 = round(c + (stop_dist * 2.5), 2)
+
+                results.append({
+                    "symbol": sym,
+                    "name": name,
+                    "industry": industry,
+                    "action": action,
+                    "signal_text": signal_text,
+                    "grade": grade,
+                    "stars": stars,
+                    "score": score,
+                    "price": f"{c:.2f}",
+                    "stop_loss": stop_loss,
+                    "trailing_stop": trailing_stop,
+                    "target1": target1,
+                    "target2": target2,
+                    "vol_ratio": f"{vol_surge:.1f}x",
+                    "trend": "Bullish" if c > ema50 > ema200 else ("Bearish" if c < ema50 < ema200 else "Neutral"),
+                    "pattern": "Bullish Reversal" if last_bar.get("pat_hammer", False) or last_bar.get("pat_engulfing", False) else "Standard",
+                    "date": str(df.index[-1].strftime("%Y-%m-%d")) if isinstance(df.index, pd.DatetimeIndex) else "—",
+                    "calibrated_prob": calibrated_prob,
+                    "is_abstain": is_abstain,
+                    "weekly_trend": "Bullish" if c > ema21 else "Neutral",
+                    "divergence": "Bullish Div" if last_bar.get("rsi_bull_div", False) else "None",
+                    "dist_52w": f"{breakout.get('dist_52w_high_pct', 0.0):.1f}%",
+                    "liquidity_tier": liq.get("liquidity_tier", "Tier 2"),
+                    "days_to_exit": liq.get("days_to_exit", 1.0)
+                })
+            except Exception:
+                continue
+
+        return sorted(results, key=lambda x: x["score"], reverse=True)[:limit]
 

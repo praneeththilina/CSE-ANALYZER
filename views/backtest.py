@@ -98,6 +98,8 @@ class BacktestTab(ttk.Frame):
 
         ttk.Button(row2, text="⚡ Run Spot Backtest", command=self._run_backtest,
                    style="Accent.TButton").pack(side="right", padx=4)
+        ttk.Button(row2, text="🔄 Walk-Forward Validation", command=self._run_walk_forward
+                   ).pack(side="right", padx=4)
 
         # ── Stats Cards ─────────────────────────────────────────────────
         stats_frame = ttk.Frame(self)
@@ -276,10 +278,13 @@ class BacktestTab(ttk.Frame):
         ax = fig.add_subplot(111)
 
         if "date" in equity_df.columns:
-            dates = pd.to_datetime(equity_df["date"])
+            dates = pd.to_datetime(equity_df["date"], errors="coerce")
         else:
-            dates = pd.to_datetime(equity_df.index)
+            dates = pd.to_datetime(equity_df.index, errors="coerce")
+        if dates.isna().all():
+            dates = np.arange(len(equity_df))
         equity = equity_df["equity"].astype(float)
+
 
         ax.fill_between(dates, equity, alpha=0.15, color="#0067c0")
         ax.plot(dates, equity, color="#0067c0", linewidth=1.8)
@@ -308,3 +313,68 @@ class BacktestTab(ttk.Frame):
     def _on_error(self, exc: Exception):
         self.app.stop_progress()
         self.app.set_status(f"Backtest error: {exc}")
+
+    def _run_walk_forward(self):
+        sym = self.sym_var.get().strip()
+        if not sym:
+            return
+
+        self.app.set_status(f"Running rolling walk-forward validation on {sym}...")
+        self.app.start_progress()
+
+        def task():
+            return self.app.engine.run_walk_forward_validation(sym)
+
+        def on_done(result):
+            self.app.stop_progress()
+            self.app.set_status(f"Walk-forward validation complete for {sym}")
+            self._show_walk_forward_modal(sym, result)
+
+        ThreadedTask(self.app.root, target=task, on_done=on_done, on_error=self._on_error).start()
+
+    def _show_walk_forward_modal(self, symbol: str, res: dict):
+        win = tk.Toplevel(self.app.root)
+        win.title(f"Walk-Forward Validation — {symbol}")
+        win.geometry("620x520")
+        win.configure(bg=WIN11_BG)
+        win.transient(self.app.root)
+        win.grab_set()
+
+        hdr = tk.Frame(win, bg="#059669", padx=16, pady=12)
+        hdr.pack(fill="x")
+        tk.Label(hdr, text=f"🛡️ Walk-Forward Validation: {symbol}", font=("Segoe UI Semibold", 13), bg="#059669", fg="#ffffff").pack(anchor="w")
+        verdict = res.get("robustness_verdict", "N/A")
+        score = res.get("profitable_periods_pct", 0.0)
+        ret = res.get("avg_out_of_sample_return_pct", 0.0)
+        tk.Label(hdr, text=f"Verdict: {verdict} | Out-of-Sample Profitable Periods: {score}% | Avg Return: {ret:+.2f}%", font=("Segoe UI", 9), bg="#059669", fg="#d1fae5").pack(anchor="w")
+
+        body = FormCard(win, title=f"Rolling Out-of-Sample Window Folds ({res.get('total_folds', 0)} Folds Tested)")
+        body.pack(fill="both", expand=True, padx=12, pady=10)
+
+        cols = [
+            ("fold", "Fold #", 60),
+            ("start", "Start Date", 95),
+            ("end", "End Date", 95),
+            ("return", "Return %", 90),
+            ("winrate", "Win Rate %", 90),
+            ("trades", "Trades", 70),
+            ("dd", "Max DD %", 80),
+        ]
+        tree = SortableTreeview(body, cols, selectmode="browse")
+        tree.pack(fill="both", expand=True, padx=4, pady=4)
+
+        for f in res.get("folds", []):
+            ret_val = float(f.get("return_pct", 0.0))
+            tag = "pos" if ret_val >= 0 else "neg"
+            tree.insert("", "end", values=(
+                f"Fold {f.get('fold', 1)}",
+                f.get("start_date", ""),
+                f.get("end_date", ""),
+                f"{ret_val:+.2f}%",
+                f"{f.get('win_rate_pct', 0.0):.1f}%",
+                f.get("trades", 0),
+                f"{f.get('max_drawdown_pct', 0.0):.2f}%"
+            ), tags=(tag,))
+
+        tree.tag_configure("pos", foreground=WIN11_GREEN)
+        tree.tag_configure("neg", foreground=WIN11_RED)

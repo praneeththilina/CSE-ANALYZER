@@ -80,19 +80,27 @@ class PortfolioTab(ttk.Frame):
         ttk.Button(form_row, text="➕ Add Position", command=self._add_trade,
                    style="Accent.TButton").pack(side="left", padx=4)
 
-        # ── Summary Cards ───────────────────────────────────────────────
+        # ── Summary Cards (Feature 48) ───────────────────────────────────
         cards_frame = ttk.Frame(self)
-        cards_frame.pack(fill="x", pady=(0, 12))
-        cards_frame.columnconfigure(tuple(range(4)), weight=1, uniform="card")
+        cards_frame.pack(fill="x", pady=(0, 8))
+        cards_frame.columnconfigure(tuple(range(6)), weight=1, uniform="card")
 
         self.card_cost = InfoCard(cards_frame, "Total Cost Basis", "—", accent_color="#0284c7", icon="💼")
-        self.card_cost.grid(row=0, column=0, padx=4, sticky="nsew")
+        self.card_cost.grid(row=0, column=0, padx=3, sticky="nsew")
         self.card_value = InfoCard(cards_frame, "Current Value", "—", accent_color="#4f46e5", icon="📈")
-        self.card_value.grid(row=0, column=1, padx=4, sticky="nsew")
+        self.card_value.grid(row=0, column=1, padx=3, sticky="nsew")
         self.card_pnl = InfoCard(cards_frame, "Total P&L", "—", accent_color="#059669", icon="💵")
-        self.card_pnl.grid(row=0, column=2, padx=4, sticky="nsew")
+        self.card_pnl.grid(row=0, column=2, padx=3, sticky="nsew")
         self.card_pnl_pct = InfoCard(cards_frame, "P&L %", "—", accent_color="#059669", icon="📊")
-        self.card_pnl_pct.grid(row=0, column=3, padx=4, sticky="nsew")
+        self.card_pnl_pct.grid(row=0, column=3, padx=3, sticky="nsew")
+        self.card_var = InfoCard(cards_frame, "Daily VaR (95%)", "—", accent_color="#e11d48", icon="🛡️")
+        self.card_var.grid(row=0, column=4, padx=3, sticky="nsew")
+        self.card_beta = InfoCard(cards_frame, "Portfolio Beta", "—", accent_color="#d97706", icon="⚖️")
+        self.card_beta.grid(row=0, column=5, padx=3, sticky="nsew")
+
+        # Risk & Concentration Warnings Banner
+        self.lbl_risk_warnings = ttk.Label(self, text="", font=("Segoe UI", 9), foreground="#b91c1c")
+        self.lbl_risk_warnings.pack(anchor="w", padx=4, pady=(0, 6))
 
         # ── Content: Table + Pie Chart ──────────────────────────────────
         content = ttk.Frame(self)
@@ -105,7 +113,7 @@ class PortfolioTab(ttk.Frame):
         table_frame = ttk.Frame(content)
         table_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
 
-        cols = ("id", "symbol", "industry", "side", "qty", "entry", "current", "pnl", "pnl_pct")
+        cols = ("id", "symbol", "industry", "side", "qty", "entry", "current", "pnl", "pnl_pct", "liq", "dte")
         self.tree = SortableTreeview(table_frame, columns=cols, height=14)
         self.tree.heading("id", text="ID")
         self.tree.heading("symbol", text="Symbol")
@@ -116,16 +124,20 @@ class PortfolioTab(ttk.Frame):
         self.tree.heading("current", text="Current")
         self.tree.heading("pnl", text="P&L")
         self.tree.heading("pnl_pct", text="P&L %")
+        self.tree.heading("liq", text="Liquidity")
+        self.tree.heading("dte", text="Days-to-Exit")
 
-        self.tree.column("id", width=40, minwidth=30, anchor="center")
-        self.tree.column("symbol", width=105, minwidth=75)
-        self.tree.column("industry", width=140, minwidth=90)
-        self.tree.column("side", width=55, minwidth=45, anchor="center")
-        self.tree.column("qty", width=65, minwidth=50, anchor="e")
-        self.tree.column("entry", width=75, minwidth=55, anchor="e")
-        self.tree.column("current", width=75, minwidth=55, anchor="e")
-        self.tree.column("pnl", width=85, minwidth=60, anchor="e")
-        self.tree.column("pnl_pct", width=75, minwidth=55, anchor="e")
+        self.tree.column("id", width=35, minwidth=25, anchor="center")
+        self.tree.column("symbol", width=95, minwidth=75)
+        self.tree.column("industry", width=120, minwidth=80)
+        self.tree.column("side", width=50, minwidth=40, anchor="center")
+        self.tree.column("qty", width=60, minwidth=45, anchor="e")
+        self.tree.column("entry", width=70, minwidth=50, anchor="e")
+        self.tree.column("current", width=70, minwidth=50, anchor="e")
+        self.tree.column("pnl", width=80, minwidth=55, anchor="e")
+        self.tree.column("pnl_pct", width=65, minwidth=50, anchor="e")
+        self.tree.column("liq", width=80, minwidth=60, anchor="center")
+        self.tree.column("dte", width=75, minwidth=55, anchor="center")
 
         scroller = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=scroller.set)
@@ -188,12 +200,16 @@ class PortfolioTab(ttk.Frame):
             pnl_pct_str = fmt_pct(p["pnl_pct"])
             tag = "profit" if p["pnl"] >= 0 else "loss"
 
+            val = float(p.get("current_value", 0))
+            liq = "Tier 1" if val >= 500_000 else ("Tier 2" if val >= 100_000 else "Tier 3")
+            dte = f"{max(0.2, round(float(p.get('quantity', 100)) / 15000.0, 1))} d"
+
             self.tree.insert("", "end", values=(
                 p["id"], p["symbol"], p["industry"], p["side"],
                 f"{p['quantity']:.0f}",
                 f"{p['entry_price']:.2f}",
                 f"{p['current_price']:.2f}" if p["current_price"] else "—",
-                pnl_str, pnl_pct_str,
+                pnl_str, pnl_pct_str, liq, dte
             ), tags=(tag,))
 
             total_cost += p["cost_basis"]
@@ -210,6 +226,22 @@ class PortfolioTab(ttk.Frame):
         self.card_value.set(fmt_currency(total_value))
         self.card_pnl.set(fmt_currency(total_pnl), color=pnl_color)
         self.card_pnl_pct.set(fmt_pct(total_pnl_pct), color=pnl_color)
+
+        # Portfolio Risk Analytics (Feature 48)
+        risk_analysis = self.app.engine.evaluate_portfolio_risk(positions, cash=0.0)
+        var_val = risk_analysis.get("var_95_daily_lkr", 0.0)
+        var_pct = risk_analysis.get("var_95_pct", 0.0)
+        self.card_var.set(f"{fmt_currency(var_val)} ({var_pct:.1f}%)")
+        self.card_beta.set(f"{risk_analysis.get('portfolio_beta', 1.0):.2f}")
+
+        warnings = risk_analysis.get("warnings", [])
+        if warnings:
+            self.lbl_risk_warnings.config(text="  •  ".join(warnings), foreground="#b91c1c")
+        else:
+            self.lbl_risk_warnings.config(
+                text="✔ Healthy portfolio diversification: No heavy sector or position concentration warnings.",
+                foreground="#059669"
+            )
 
         # Pie chart
         self._render_pie(by_industry)

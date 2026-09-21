@@ -59,35 +59,49 @@ class ChartTab(ttk.Frame):
 
         ttk.Button(self.tv_toolbar, text="📈 Load", style="Accent.TButton", command=self._on_load).pack(side="left", padx=(0, 6))
 
-        # 2. Timeframe Selector
-        ttk.Separator(self.tv_toolbar, orient="vertical").pack(side="left", fill="y", padx=6)
+        # 2. Timeframe & Zoom Selector
+        ttk.Separator(self.tv_toolbar, orient="vertical").pack(side="left", fill="y", padx=4)
+        self.tf_var = tk.StringVar(value="1D")
+        for tf in ["1D", "1W", "1M"]:
+            ttk.Radiobutton(self.tv_toolbar, text=tf, variable=self.tf_var, value=tf,
+                            command=self._on_load).pack(side="left", padx=1)
+
+        ttk.Separator(self.tv_toolbar, orient="vertical").pack(side="left", fill="y", padx=4)
         self.period_var = tk.StringVar(value="1Y")
         for p in ["1M", "3M", "6M", "1Y", "All"]:
             ttk.Radiobutton(self.tv_toolbar, text=p, variable=self.period_var, value=p,
                             command=self._on_load).pack(side="left", padx=1)
 
-        # 3. Technical Overlays
+        # 3. Technical Overlays (Features 9, 12, 15, 16)
         ttk.Separator(self.tv_toolbar, orient="vertical").pack(side="left", fill="y", padx=6)
         self.show_ma_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(self.tv_toolbar, text="EMA 50/200", variable=self.show_ma_var,
-                        command=self._on_load).pack(side="left", padx=3)
+                        command=self._on_load).pack(side="left", padx=2)
+
+        self.show_bb_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(self.tv_toolbar, text="Bollinger", variable=self.show_bb_var,
+                        command=self._on_load).pack(side="left", padx=2)
+
+        self.show_vwap_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(self.tv_toolbar, text="VWAP", variable=self.show_vwap_var,
+                        command=self._on_load).pack(side="left", padx=2)
 
         self.show_signals_var = tk.BooleanVar(value=True)
         self.show_qqe_var = self.show_signals_var  # alias
-        ttk.Checkbutton(self.tv_toolbar, text="BUY/EXIT Signals", variable=self.show_signals_var,
-                        command=self._on_load).pack(side="left", padx=3)
+        ttk.Checkbutton(self.tv_toolbar, text="Signals", variable=self.show_signals_var,
+                        command=self._on_load).pack(side="left", padx=2)
 
         self.show_sr_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(self.tv_toolbar, text="S/R", variable=self.show_sr_var,
-                        command=self._on_toggle_levels).pack(side="left", padx=3)
+                        command=self._on_toggle_levels).pack(side="left", padx=2)
 
         self.show_fib_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(self.tv_toolbar, text="Fibonacci", variable=self.show_fib_var,
-                        command=self._on_toggle_levels).pack(side="left", padx=3)
+                        command=self._on_toggle_levels).pack(side="left", padx=2)
 
         self.show_targets_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(self.tv_toolbar, text="Targets", variable=self.show_targets_var,
-                        command=self._on_toggle_levels).pack(side="left", padx=3)
+                        command=self._on_toggle_levels).pack(side="left", padx=2)
 
         # 4. Right Side Actions & Drawer Toggles
         ttk.Button(self.tv_toolbar, text="⭐ + Watchlist", command=self._add_to_watchlist_dialog,
@@ -328,6 +342,18 @@ class ChartTab(ttk.Frame):
         # Compute confluence & key levels for this symbol
         confluence = self.app.engine.compute_confluence(df_full, 1)
 
+        # Multi-Timeframe Resampling (Feature 19)
+        tf = getattr(self, "tf_var", None)
+        tf_val = tf.get() if tf else "1D"
+        if tf_val == "1W" and len(df_full) >= 10:
+            df_full = df_full.resample("W-FRI").agg({
+                "open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"
+            }).dropna()
+        elif tf_val == "1M" and len(df_full) >= 20:
+            df_full = df_full.resample("ME").agg({
+                "open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"
+            }).dropna()
+
         # Compute spot BUY and EXIT signals across history
         signals_data = None
         if show_signals:
@@ -442,6 +468,22 @@ class ChartTab(ttk.Frame):
             if len(ohlcv) > 50:
                 ema200 = ohlcv["close"].ewm(span=200, adjust=False).mean()
                 addplots.append(mpf.make_addplot(ema200, color="#0284c7", width=1.4, linestyle="-", label="EMA 200"))
+
+        # Bollinger Bands overlay (Feature 12)
+        if getattr(self, "show_bb_var", None) and self.show_bb_var.get() and len(ohlcv) > 20:
+            sma = ohlcv["close"].rolling(20, min_periods=5).mean()
+            std = ohlcv["close"].rolling(20, min_periods=5).std().fillna(0)
+            upper = sma + (2 * std)
+            lower = sma - (2 * std)
+            addplots.append(mpf.make_addplot(upper, color="#8b5cf6", width=1.1, linestyle="--"))
+            addplots.append(mpf.make_addplot(lower, color="#8b5cf6", width=1.1, linestyle="--"))
+
+        # VWAP overlay (Feature 15)
+        if getattr(self, "show_vwap_var", None) and self.show_vwap_var.get() and len(ohlcv) > 5:
+            tp = (ohlcv["high"] + ohlcv["low"] + ohlcv["close"]) / 3.0
+            cum_vol = ohlcv["volume"].cumsum().replace(0, np.nan)
+            vwap = (tp * ohlcv["volume"]).cumsum() / cum_vol
+            addplots.append(mpf.make_addplot(vwap.fillna(ohlcv["close"]), color="#ec4899", width=1.2, linestyle="-"))
 
         # Spot Equity BUY & EXIT Signal Markers
         if "signals" in data and self.show_signals_var.get():

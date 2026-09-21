@@ -15,6 +15,7 @@ from views.dashboard import DashboardTab
 from views.scanner import ScannerTab
 from views.chart import ChartTab
 from views.watchlist import WatchlistTab
+from views.market_intel import MarketIntelTab
 from views.portfolio import PortfolioTab
 from views.backtest import BacktestTab
 from views.ai_analysis import AIAnalysisTab
@@ -39,6 +40,7 @@ class MainApp(ttk.Frame):
         self.scanner = ScannerTab(self.notebook, self)
         self.chart = ChartTab(self.notebook, self)
         self.watchlist = WatchlistTab(self.notebook, self)
+        self.market_intel = MarketIntelTab(self.notebook, self)
         self.portfolio = PortfolioTab(self.notebook, self)
         self.backtest = BacktestTab(self.notebook, self)
         self.ai_analysis = AIAnalysisTab(self.notebook, self)
@@ -48,6 +50,7 @@ class MainApp(ttk.Frame):
         self.notebook.add(self.scanner, text="  🔍 Stock Scanner  ")
         self.notebook.add(self.chart, text="  📈 Charts  ")
         self.notebook.add(self.watchlist, text="  ⭐ Watchlist  ")
+        self.notebook.add(self.market_intel, text="  🏛️ Market Intel  ")
         self.notebook.add(self.portfolio, text="  💼 Portfolio  ")
         self.notebook.add(self.backtest, text="  ⚡ Backtest  ")
         self.notebook.add(self.ai_analysis, text="  🤖 AI Analysis  ")
@@ -92,6 +95,13 @@ class MainApp(ttk.Frame):
         self.notebook.select(self.watchlist)
         if symbol:
             self.watchlist.sym_var.set(symbol)
+
+    def switch_to_intel(self, symbol: str | None = None):
+        """Switch to Market Intel tab and optionally analyze a symbol."""
+        self.notebook.select(self.market_intel)
+        if symbol:
+            self.market_intel.sym_var.set(symbol)
+            self.market_intel.load_symbol_intel()
 
     def set_status(self, message: str):
         self.status_bar.set_message(message)
