@@ -19,8 +19,9 @@ from matplotlib.figure import Figure
 from ui_utils import (
     InfoCard, FormCard, SortableTreeview, ThreadedTask,
     fmt_currency, fmt_pct,
-    WIN11_BG, WIN11_CARD_BG, WIN11_GREEN, WIN11_RED, WIN11_TEXT_MAIN,
+    WIN11_BG, WIN11_CARD_BG, WIN11_GREEN, WIN11_RED, WIN11_TEXT_MAIN, WIN11_TEXT_MUTED,
     FONT_TITLE, FONT_SECTION, FONT_BODY
+
 )
 
 if TYPE_CHECKING:

@@ -5,11 +5,11 @@ desktop UI never imports them directly.  All heavy I/O runs in background
 threads via ThreadedTask (see ui_utils.py).
 """
 from __future__ import annotations
-
 import sqlite3
 from datetime import date, timedelta, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+
+from typing import Any, Dict, List, Tuple, Optional, Union
 
 import numpy as np
 import pandas as pd
