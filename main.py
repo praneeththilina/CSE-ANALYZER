@@ -59,6 +59,14 @@ def _load_local_app_module():
 
 
 def main():
+    # Enable Windows 11 High-DPI Awareness BEFORE creating the window
+
+    try:
+        import ctypes
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    except Exception:
+        pass
+
     root = tk.Tk()
 
     # Hide window immediately while building to prevent element-by-element pop-in / flicker
@@ -66,25 +74,24 @@ def main():
     root.title("CSE Stock Analyzer")
 
     # Center window on screen
-    w, h = 1400, 850
+    w, h = 1420, 860
     screen_w = root.winfo_screenwidth()
     screen_h = root.winfo_screenheight()
     x = max(0, (screen_w - w) // 2)
     y = max(0, (screen_h - h) // 2)
     root.geometry(f"{w}x{h}+{x}+{y}")
-    root.minsize(1100, 700)
+    root.minsize(1120, 720)
 
-    # Sun-Valley Windows 11 Light theme
-    sv_ttk.set_theme("light")
-    setup_win11_styles(root)
-
-    # Match the Windows title-bar to native Windows 11 light surface
+    # Initial Theme: Detect system preference or default to light
     try:
-        import pywinstyles
-        pywinstyles.apply_style(root, "mica")
-        pywinstyles.change_header_color(root, WIN11_BG)
+        import darkdetect
+        init_theme = "dark" if (darkdetect and darkdetect.isDark()) else "light"
     except Exception:
-        pass
+        init_theme = "light"
+
+    from ui.theme.styles import apply_theme
+    apply_theme(root, init_theme)
+
 
     # App icon (reuse parent icon if available)
     icon_path = _PARENT_DIR / "icon.ico"

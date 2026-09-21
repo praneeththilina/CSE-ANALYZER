@@ -1,129 +1,76 @@
-# ui_utils.py  –  Shared UI helpers & Windows 11 Light Theme for CSE Analyzer
+# ui_utils.py  –  Facade & Shared UI Utilities for CSE Analyzer
 """
-Reusable widgets, typography, formatters, and threading helpers styled
-for a native Windows 11 Fluent Light appearance.
+Backward-compatible facade that re-exports Windows 11 Fluent design tokens,
+theme manager, components, and thread execution utilities.
 """
 from __future__ import annotations
 
 import threading
 import tkinter as tk
 from tkinter import ttk
-from typing import Any, Callable
+from typing import Any, Callable, Dict, List, Optional
 
+# Re-export design tokens, typography, and styling from new ui.theme layer
+from ui.theme.tokens import (
+    ThemeManager,
+    DARK,
+    LIGHT,
+    SPACING,
+    RADII,
+    FONTS,
+    get_token,
+    get_theme_mode,
+    set_theme_mode,
+    WIN11_BG,
+    WIN11_CARD_BG,
+    WIN11_CARD_BORDER,
+    WIN11_TEXT_MAIN,
+    WIN11_TEXT_MUTED,
+    WIN11_TEXT_SUBTLE,
+    WIN11_ACCENT,
+    WIN11_ACCENT_HOVER,
+    WIN11_GREEN,
+    WIN11_GREEN_BG,
+    WIN11_RED,
+    WIN11_RED_BG,
+    WIN11_BORDER,
+    WIN11_HEADER_BG,
+    WIN11_SELECT_BG,
+    WIN11_SELECT_FG,
+    GRADE_A_PLUS,
+    GRADE_A_PLUS_BG,
+    GRADE_A,
+    GRADE_A_BG,
+    GRADE_B,
+    GRADE_B_BG,
+    GRADE_C,
+    GRADE_C_BG,
+    FONT_TITLE,
+    FONT_SECTION,
+    FONT_SUBTITLE,
+    FONT_BODY,
+    FONT_BODY_BOLD,
+    FONT_CAPTION,
+    FONT_CARD_TITLE,
+    FONT_CARD_VAL,
+    FONT_MONO,
+)
 
-# ══════════════════════════════════════════════════════════════════════════
-# Windows 11 Design System Tokens
-# ══════════════════════════════════════════════════════════════════════════
+from ui.theme.styles import setup_win11_styles, apply_theme
+from ui.theme.icons import ICONS, get_icon
 
-WIN11_BG = "#f3f3f3"            # App canvas background
-WIN11_CARD_BG = "#ffffff"       # Elevated card surface
-WIN11_CARD_BORDER = "#e2e8f0"   # Card stroke / outline
-WIN11_TEXT_MAIN = "#0f172a"     # Primary text (slate 900)
-WIN11_TEXT_MUTED = "#64748b"    # Secondary text (slate 500)
-WIN11_TEXT_SUBTLE = "#94a3b8"   # Tertiary text (slate 400)
-WIN11_ACCENT = "#0067c0"        # Windows 11 Fluent blue
-WIN11_ACCENT_HOVER = "#1879cd"
-WIN11_GREEN = "#0e700e"         # Accessible success green
-WIN11_GREEN_BG = "#f0fdf4"      # Soft green tint
-WIN11_RED = "#c42b1c"           # Accessible error red
-WIN11_RED_BG = "#fef2f2"        # Soft red tint
-WIN11_BORDER = "#cbd5e1"        # Divider / border
-WIN11_HEADER_BG = "#f8fafc"     # Table header background
-WIN11_SELECT_BG = "#e0f2fe"     # Selection blue
-WIN11_SELECT_FG = "#0369a1"
-
-# Signal Confluence Grades
-GRADE_A_PLUS = "#059669"        # Emerald - Strong High Conviction
-GRADE_A_PLUS_BG = "#ecfdf5"     # Soft Emerald tint
-GRADE_A = "#0284c7"             # Sky Blue - Solid Setup
-GRADE_A_BG = "#f0f9ff"          # Soft Sky tint
-GRADE_B = "#d97706"             # Amber - Moderate Setup
-GRADE_B_BG = "#fffbeb"          # Soft Amber tint
-GRADE_C = "#e11d48"             # Rose - Low Confluence / Warning
-GRADE_C_BG = "#fff1f2"          # Soft Rose tint
-
-# Typography
-FONT_FAMILY = "Segoe UI"
-FONT_SEMIBOLD = "Segoe UI Semibold"
-
-FONT_TITLE = (FONT_SEMIBOLD, 15)
-FONT_SECTION = (FONT_SEMIBOLD, 12)
-FONT_SUBTITLE = (FONT_FAMILY, 9)
-FONT_BODY = (FONT_FAMILY, 9)
-FONT_BODY_BOLD = (FONT_SEMIBOLD, 9)
-FONT_CAPTION = (FONT_FAMILY, 8)
-FONT_CARD_TITLE = (FONT_SEMIBOLD, 9)
-FONT_CARD_VAL = (FONT_SEMIBOLD, 17)
-FONT_MONO = ("Consolas", 9)
-
-
-# ══════════════════════════════════════════════════════════════════════════
-# Theme Configuration
-# ══════════════════════════════════════════════════════════════════════════
-
-def setup_win11_styles(root: tk.Tk):
-    """Apply native Windows 11 light styling to ttk widgets."""
-    root.configure(bg=WIN11_BG)
-    style = ttk.Style(root)
-
-    # General Frames
-    style.configure("TFrame", background=WIN11_BG)
-    style.configure("Card.TFrame", background=WIN11_CARD_BG, relief="solid", borderwidth=1, bordercolor=WIN11_CARD_BORDER)
-
-    # Label Frames
-    style.configure("TLabelframe", background=WIN11_BG, bordercolor=WIN11_CARD_BORDER)
-    style.configure("TLabelframe.Label", background=WIN11_BG, foreground=WIN11_TEXT_MAIN, font=FONT_SECTION)
-
-    # Labels
-    style.configure("TLabel", background=WIN11_BG, foreground=WIN11_TEXT_MAIN, font=FONT_BODY)
-    style.configure("Title.TLabel", font=FONT_TITLE, foreground=WIN11_TEXT_MAIN)
-    style.configure("Subtitle.TLabel", font=FONT_SUBTITLE, foreground=WIN11_TEXT_MUTED)
-    style.configure("CardTitle.TLabel", background=WIN11_CARD_BG, foreground=WIN11_TEXT_MUTED, font=FONT_CARD_TITLE)
-    style.configure("CardVal.TLabel", background=WIN11_CARD_BG, foreground=WIN11_TEXT_MAIN, font=FONT_CARD_VAL)
-
-    # Treeview (Modern Windows 11 table)
-    style.configure(
-        "Treeview",
-        background=WIN11_CARD_BG,
-        fieldbackground=WIN11_CARD_BG,
-        foreground=WIN11_TEXT_MAIN,
-        rowheight=28,
-        font=FONT_BODY,
-        borderwidth=1,
-        relief="solid",
-        bordercolor=WIN11_CARD_BORDER,
-    )
-    style.map(
-        "Treeview",
-        background=[("selected", WIN11_SELECT_BG)],
-        foreground=[("selected", WIN11_SELECT_FG)],
-    )
-
-    style.configure(
-        "Treeview.Heading",
-        background=WIN11_HEADER_BG,
-        foreground=WIN11_TEXT_MUTED,
-        font=FONT_BODY_BOLD,
-        relief="flat",
-        padding=(6, 6),
-    )
-    style.map(
-        "Treeview.Heading",
-        background=[("active", "#f1f5f9")],
-        foreground=[("active", WIN11_TEXT_MAIN)],
-    )
-
-    # Notebook Tabs
-    style.configure(
-        "TNotebook",
-        background=WIN11_BG,
-        borderwidth=0,
-    )
-    style.configure(
-        "TNotebook.Tab",
-        font=FONT_BODY_BOLD,
-        padding=(14, 8),
-    )
+# Re-export components from ui.components
+from ui.components.card import Card, InfoCard, FormCard
+from ui.components.buttons import PrimaryButton, GhostButton, IconButton, SegmentedButton
+from ui.components.entries import LabeledEntry, StateEntry
+from ui.components.badges import Badge, Pill
+from ui.components.stat_tile import StatTile
+from ui.components.data_table import DataTable, SortableTreeview
+from ui.components.search_box import SearchBox
+from ui.components.nav_rail import NavRail
+from ui.components.toast import ToastManager, show_toast
+from ui.components.tooltip import ToolTip
+from ui.charts.canvas_candlestick import CanvasCandlestick
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -180,7 +127,8 @@ class ScrollableFrame(ttk.Frame):
     def __init__(self, parent, **kw):
         super().__init__(parent, **kw)
 
-        self._canvas = tk.Canvas(self, highlightthickness=0, bg=WIN11_BG)
+        tokens = ThemeManager.tokens()
+        self._canvas = tk.Canvas(self, highlightthickness=0, bg=tokens["bg"])
         self._scrollbar = ttk.Scrollbar(self, orient="vertical", command=self._canvas.yview)
         self.inner = ttk.Frame(self._canvas)
 
@@ -192,98 +140,36 @@ class ScrollableFrame(ttk.Frame):
         self._scrollbar.pack(side="right", fill="y")
 
         self._canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+        ThemeManager.register_listener(self._on_theme_change)
 
     def _on_mousewheel(self, event):
         self._canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
-
-# ══════════════════════════════════════════════════════════════════════════
-# Info Card Widget (Windows 11 Light Surface Card with Color Stripe)
-# ══════════════════════════════════════════════════════════════════════════
-
-class InfoCard(tk.Frame):
-    """
-    A native Windows 11 KPI card with a vibrant top accent stripe,
-    crisp white background, and bold Segoe UI metric typography.
-    """
-
-    def __init__(self, parent, title: str = "", value: str = "—", accent_color: str = "#0284c7", icon: str = "", **kw):
-        super().__init__(parent, bg=WIN11_CARD_BG, highlightbackground=WIN11_CARD_BORDER,
-                         highlightthickness=1, bd=0, **kw)
-
-        self._accent = accent_color
-        display_title = f"{icon + ' ' if icon else ''}{title.upper()}"
-        self._title_var = tk.StringVar(value=display_title)
-        self._value_var = tk.StringVar(value=value)
-
-        # 3px colorful accent stripe on top
-        self._top_stripe = tk.Frame(self, bg=accent_color, height=3)
-        self._top_stripe.pack(fill="x", side="top")
-
-        # Internal container with comfortable padding
-        inner = tk.Frame(self, bg=WIN11_CARD_BG, padx=12, pady=10)
-        inner.pack(fill="both", expand=True)
-
-        # Title / Label
-        self._title_lbl = tk.Label(
-            inner,
-            textvariable=self._title_var,
-            font=FONT_CARD_TITLE,
-            fg=WIN11_TEXT_MUTED,
-            bg=WIN11_CARD_BG,
-            anchor="w",
-        )
-        self._title_lbl.pack(fill="x", anchor="w")
-
-        # Metric Value in Accent Color
-        self._val_lbl = tk.Label(
-            inner,
-            textvariable=self._value_var,
-            font=FONT_CARD_VAL,
-            fg=self._accent,
-            bg=WIN11_CARD_BG,
-            anchor="w",
-        )
-        self._val_lbl.pack(fill="x", anchor="w", pady=(2, 0))
-
-    def set(self, value: str, title: str | None = None, color: str | None = None):
-        self._value_var.set(value)
-        if title is not None:
-            self._title_var.set(title.upper())
-        if color is not None:
-            self._accent = color
-            self._top_stripe.configure(bg=color)
-            self._val_lbl.configure(fg=color)
-
-    def set_value(self, value: str, title: str | None = None, color: str | None = None):
-        """Alias for set() for backwards compatibility."""
-        self.set(value, title=title, color=color)
+    def _on_theme_change(self, mode: str):
+        tokens = ThemeManager.tokens()
+        self._canvas.configure(bg=tokens["bg"])
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Form Card Widget (Colorful Container for Forms & Control Panels)
+# Modern Form Card (Backward Compatibility)
 # ══════════════════════════════════════════════════════════════════════════
 
-class FormCard(tk.Frame):
-    """
-    A vibrant Windows 11 Form Area with a colored accent stripe,
-    pill badge header, tinted background, and crisp border.
-    """
+class ModernFormCard(tk.Frame):
+    """Refined form card container with accent top strip and pill header."""
 
     def __init__(
         self,
         parent,
         title: str = "",
-        accent_color: str = "#0067c0",
-        bg_color: str = "#f8faff",
-        border_color: str = "#bfdbfe",
         icon: str = "⚙",
+        accent_color: str = "#0067c0",
+        bg_color: str = "#ffffff",
         **kw
     ):
         super().__init__(
             parent,
             bg=bg_color,
-            highlightbackground=border_color,
+            highlightbackground="#e2e8f0",
             highlightthickness=1,
             bd=0,
             **kw
@@ -291,7 +177,7 @@ class FormCard(tk.Frame):
         self.accent_color = accent_color
         self.bg_color = bg_color
 
-        # 1. Top Accent Stripe (3px vibrant line)
+        # 1. Top Accent Stripe
         self._stripe = tk.Frame(self, bg=accent_color, height=3)
         self._stripe.pack(fill="x", side="top")
 
@@ -309,7 +195,7 @@ class FormCard(tk.Frame):
             bg=accent_color,
         ).pack()
 
-        # 3. Content Body for form controls
+        # 3. Content Body
         self.body = tk.Frame(self, bg=bg_color, padx=14, pady=8)
         self.body.pack(fill="both", expand=True, side="top")
 
@@ -319,24 +205,50 @@ class FormCard(tk.Frame):
 # ══════════════════════════════════════════════════════════════════════════
 
 class StatusBar(tk.Frame):
-    """Persistent status bar with Windows 11 light border and typography."""
+    """Persistent status bar with Windows 11 light/dark styling."""
 
     def __init__(self, parent, **kw):
-        super().__init__(parent, bg="#eaeaea", highlightbackground=WIN11_BORDER,
-                         highlightthickness=1, bd=0, padx=8, pady=4, **kw)
+        tokens = ThemeManager.tokens()
+        super().__init__(
+            parent,
+            bg=tokens["surface"],
+            highlightbackground=tokens["border"],
+            highlightthickness=1,
+            bd=0,
+            padx=12,
+            pady=4,
+            **kw
+        )
 
         self._msg_var = tk.StringVar(value="Ready")
+
+        # Dot indicator
+        self._dot = tk.Label(self, text="●", font=FONT_CAPTION, fg=tokens["gain"], bg=tokens["surface"])
+        self._dot.pack(side="left", padx=(0, 4))
+
         self._lbl = tk.Label(
             self,
             textvariable=self._msg_var,
             font=FONT_CAPTION,
-            fg=WIN11_TEXT_MUTED,
-            bg="#eaeaea",
+            fg=tokens["text_dim"],
+            bg=tokens["surface"],
         )
         self._lbl.pack(side="left")
 
-        self._progress = ttk.Progressbar(self, mode="indeterminate", length=120)
+        self._progress = ttk.Progressbar(self, mode="indeterminate", length=140)
         self._progress.pack(side="right", padx=6, pady=1)
+
+        # Connection / engine state indicator
+        self._conn_lbl = tk.Label(
+            self,
+            text="CSE DataEngine: Connected (262 Equities)",
+            font=FONT_CAPTION,
+            fg=tokens["text_subtle"],
+            bg=tokens["surface"]
+        )
+        self._conn_lbl.pack(side="right", padx=(0, 16))
+
+        ThemeManager.register_listener(self._on_theme_change)
 
     def set_message(self, text: str):
         self._msg_var.set(text)
@@ -346,6 +258,13 @@ class StatusBar(tk.Frame):
 
     def stop_progress(self):
         self._progress.stop()
+
+    def _on_theme_change(self, mode: str):
+        tokens = ThemeManager.tokens()
+        self.configure(bg=tokens["surface"], highlightbackground=tokens["border"])
+        self._dot.configure(bg=tokens["surface"])
+        self._lbl.configure(bg=tokens["surface"], fg=tokens["text_dim"])
+        self._conn_lbl.configure(bg=tokens["surface"], fg=tokens["text_subtle"])
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -389,47 +308,3 @@ class ThreadedTask:
                     self._root.after(0, self._on_error, exc)
                 except Exception:
                     pass
-
-
-# ══════════════════════════════════════════════════════════════════════════
-# Sortable Treeview
-# ══════════════════════════════════════════════════════════════════════════
-
-class SortableTreeview(ttk.Treeview):
-    """A Treeview that sorts columns when headers are clicked."""
-
-    def __init__(self, parent, columns, **kw):
-        super().__init__(parent, columns=columns, show="headings", **kw)
-        self._sort_reverse: dict[str, bool] = {}
-
-        for col in columns:
-            self._sort_reverse[col] = False
-            self.heading(col, command=lambda c=col: self._sort_by(c))
-
-    def clear(self):
-        """Clears all rows from the treeview."""
-        self.delete(*self.get_children())
-
-    def _sort_by(self, col: str):
-        data = [(self.set(child, col), child) for child in self.get_children("")]
-
-        try:
-            data.sort(
-                key=lambda t: float(
-                    t[0].replace(",", "")
-                    .replace("%", "")
-                    .replace("+", "")
-                    .replace("LKR ", "")
-                    .replace("₨ ", "")
-                    .replace("▲ ", "")
-                    .replace("▼ ", "")
-                ),
-                reverse=self._sort_reverse[col],
-            )
-        except (ValueError, TypeError):
-            data.sort(key=lambda t: t[0], reverse=self._sort_reverse[col])
-
-        for idx, (_, child) in enumerate(data):
-            self.move(child, "", idx)
-
-        self._sort_reverse[col] = not self._sort_reverse[col]
