@@ -280,6 +280,8 @@ class TechnicalEngine:
     def recognize_candlestick_patterns(df: pd.DataFrame) -> pd.DataFrame:
         """Identify key candlestick patterns: Hammer, Engulfing, Morning Star, Doji (Feature 17)."""
         df = df.copy()
+        if "open" not in df.columns:
+            df["open"] = df["close"].shift(1).fillna(df["close"])
         o = df["open"]
         h = df["high"]
         l = df["low"]
