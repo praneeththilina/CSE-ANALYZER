@@ -760,6 +760,116 @@ class DataEngine:
 
     # ── Spot Equity Decision Engine (BUY & EXIT Areas) ──────────────────
 
+    def _calculate_spot_indicators(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """Calculates indicators and parameters required for spot signal evaluation."""
+        close = df["close"]
+        high = df["high"]
+        low = df["low"]
+        volume = df["volume"]
+        c_last = float(close.iloc[-1])
+        c_prev = float(close.iloc[-2]) if len(close) >= 2 else c_last
+        o_last = float(df["open"].iloc[-1]) if "open" in df else c_prev
+
+        # EMAs: 20, 50, 200
+        ema20 = close.ewm(span=min(20, len(close)), adjust=False).mean()
+        ema50 = close.ewm(span=min(50, len(close)), adjust=False).mean()
+        ema200 = close.ewm(span=min(200, len(close)), adjust=False).mean() if len(close) >= 50 else ema50
+
+        e20_last = float(ema20.iloc[-1])
+        e20_prev = float(ema20.iloc[-2]) if len(ema20) >= 2 else e20_last
+        e50_last = float(ema50.iloc[-1])
+        e50_prev = float(ema50.iloc[-2]) if len(ema50) >= 2 else e50_last
+        e200_last = float(ema200.iloc[-1])
+
+        is_above_200 = c_last >= e200_last
+        is_above_50 = c_last >= e50_last
+        is_ema20_cross = (e20_prev <= e50_prev) and (e20_last > e50_last)
+
+        # 20-day Volume Surge
+        vol_window = min(20, len(volume))
+        vol_ma20 = volume.rolling(vol_window).mean()
+        avg_vol = float(vol_ma20.iloc[-1]) if not np.isnan(vol_ma20.iloc[-1]) else 1.0
+        v_last = float(volume.iloc[-1])
+        vol_ratio = (v_last / avg_vol) if avg_vol > 0 else 1.0
+
+        # 20-day High & Low
+        high_20d = float(high.iloc[:-1].tail(20).max()) if len(high) > 20 else float(high.max())
+
+        # Confluence metrics
+        conf = self.compute_confluence(df, signal=1)
+
+        return {
+            "c_last": c_last,
+            "c_prev": c_prev,
+            "o_last": o_last,
+            "e50_last": e50_last,
+            "e50_prev": e50_prev,
+            "is_above_200": is_above_200,
+            "is_above_50": is_above_50,
+            "is_ema20_cross": is_ema20_cross,
+            "vol_ratio": vol_ratio,
+            "high_20d": high_20d,
+            "conf": conf,
+        }
+
+    @staticmethod
+    def _eval_spot_buy_setups(
+        c_last: float,
+        high_20d: float,
+        is_above_50: bool,
+        vol_ratio: float,
+        conf_score: int,
+        is_above_200: bool,
+        e50_last: float,
+        o_last: float,
+        is_ema20_cross: bool,
+    ) -> Optional[Tuple[str, str]]:
+        """Evaluates BUY setups and returns (setup_type, reason) if triggered."""
+        # Setup A: Momentum Breakout BUY
+        if c_last >= high_20d and is_above_50 and vol_ratio >= 1.20 and conf_score >= 60:
+            return "🚀 Breakout BUY", f"Broke 20-day high ({high_20d:.2f}) with {vol_ratio:.1f}x volume surge."
+
+        # Setup B: Pullback to Value BUY
+        if is_above_200 and abs(c_last - e50_last) / c_last < 0.035 and c_last >= o_last and conf_score >= 55:
+            return "💎 Pullback BUY", f"Testing 50 EMA dynamic support ({e50_last:.2f}) with bullish candle."
+
+        # Setup C: Golden Crossover BUY
+        if is_ema20_cross and is_above_200 and conf_score >= 50:
+            return "⚡ Golden Cross BUY", "EMA 20 crossed above EMA 50 with macro trend alignment."
+
+        return None
+
+    @staticmethod
+    def _eval_spot_exit_conditions(
+        c_last: float,
+        target2: float,
+        target1: float,
+        suggested_stop: float,
+        is_above_50: bool,
+        c_prev: float,
+        e50_prev: float,
+        vol_ratio: float,
+        e50_last: float,
+    ) -> Optional[Tuple[str, str]]:
+        """Evaluates EXIT conditions and returns (setup_type, reason) if triggered."""
+        # Condition A: Target 2 Reached
+        if c_last >= target2:
+            return "🏆 Target 2 Hit", f"Hit Target 2 ({target2:.2f} LKR, ~2.5R). Lock in full profits."
+
+        # Condition B: Target 1 Reached
+        if c_last >= target1:
+            return "🎯 Target 1 Hit", f"Hit Target 1 ({target1:.2f} LKR, ~1.5R). Lock in 50% profit and trail stop."
+
+        # Condition C: Stop Loss Breached
+        if c_last <= suggested_stop:
+            return "⚠️ Stop Loss Breached", f"Fell below risk boundary ({suggested_stop:.2f} LKR). Protect capital."
+
+        # Condition D: Trend Breakdown below 50 EMA
+        if not is_above_50 and c_prev >= e50_prev and vol_ratio >= 1.3:
+            return "🔻 Trend Breakdown", f"Broke below 50 EMA support ({e50_last:.2f} LKR) on high volume."
+
+        return None
+
     def compute_spot_signals(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
         Spot Equities Decision Engine for Colombo Stock Exchange.
@@ -785,107 +895,50 @@ class DataEngine:
                 "reason": "Minimum 25 daily price bars required.",
             }
 
-        close = df["close"]
-        high = df["high"]
-        low = df["low"]
-        volume = df["volume"]
-        c_last = float(close.iloc[-1])
-        c_prev = float(close.iloc[-2]) if len(close) >= 2 else c_last
-        o_last = float(df["open"].iloc[-1]) if "open" in df else c_prev
-
-        # EMAs: 20, 50, 200
-        ema20 = close.ewm(span=min(20, len(close)), adjust=False).mean()
-        ema50 = close.ewm(span=min(50, len(close)), adjust=False).mean()
-        ema200 = close.ewm(span=min(200, len(close)), adjust=False).mean() if len(close) >= 50 else ema50
-
-        e20_last = float(ema20.iloc[-1])
-        e20_prev = float(ema20.iloc[-2]) if len(ema20) >= 2 else e20_last
-        e50_last = float(ema50.iloc[-1])
-        e50_prev = float(ema50.iloc[-2]) if len(ema50) >= 2 else e50_last
-        e200_last = float(ema200.iloc[-1])
-
-        is_above_200 = c_last >= e200_last
-        is_above_50 = c_last >= e50_last
-        is_golden_cross = e50_last >= e200_last
-        is_ema20_cross = (e20_prev <= e50_prev) and (e20_last > e50_last)
-
-        # 20-day Volume Surge
-        vol_window = min(20, len(volume))
-        vol_ma20 = volume.rolling(vol_window).mean()
-        avg_vol = float(vol_ma20.iloc[-1]) if not np.isnan(vol_ma20.iloc[-1]) else 1.0
-        v_last = float(volume.iloc[-1])
-        vol_ratio = (v_last / avg_vol) if avg_vol > 0 else 1.0
-
-        # ATR 14
-        prev_close = close.shift(1)
-        tr1 = high - low
-        tr2 = (high - prev_close).abs()
-        tr3 = (low - prev_close).abs()
-        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-        atr_series = tr.rolling(min(14, len(tr))).mean()
-        atr = float(atr_series.iloc[-1]) if not np.isnan(atr_series.iloc[-1]) and atr_series.iloc[-1] > 0 else max(c_last * 0.02, 0.5)
-
-        # 20-day High & Low
-        high_20d = float(high.iloc[:-1].tail(20).max()) if len(high) > 20 else float(high.max())
-        low_20d = float(low.iloc[:-1].tail(20).min()) if len(low) > 20 else float(low.min())
-
-        # Confluence metrics
-        conf = self.compute_confluence(df, signal=1)
-
-        # Default Spot Targets & Stops
+        ind = self._calculate_spot_indicators(df)
+        c_last = ind["c_last"]
+        conf = ind["conf"]
         suggested_stop = conf["suggested_stop"]
         trailing_stop = conf["trailing_stop"]
         target1 = conf["target1"]
         target2 = conf["target2"]
 
-        # ── Spot Decision Logic ─────────────────────────────────────────
-        action = "HOLD"
-        setup_type = "Consolidation / Hold"
-        reason = "Price within established range; no immediate entry or exit triggered."
+        # Evaluate BUY setups
+        buy_res = self._eval_spot_buy_setups(
+            c_last=c_last,
+            high_20d=ind["high_20d"],
+            is_above_50=ind["is_above_50"],
+            vol_ratio=ind["vol_ratio"],
+            conf_score=conf["score"],
+            is_above_200=ind["is_above_200"],
+            e50_last=ind["e50_last"],
+            o_last=ind["o_last"],
+            is_ema20_cross=ind["is_ema20_cross"],
+        )
 
-        # 1. EVALUATE BUY SETUPS
-        # Setup A: Momentum Breakout BUY
-        if c_last >= high_20d and is_above_50 and vol_ratio >= 1.20 and conf["score"] >= 60:
+        if buy_res:
             action = "BUY"
-            setup_type = "🚀 Breakout BUY"
-            reason = f"Broke 20-day high ({high_20d:.2f}) with {vol_ratio:.1f}x volume surge."
-
-        # Setup B: Pullback to Value BUY
-        elif is_above_200 and abs(c_last - e50_last) / c_last < 0.035 and c_last >= o_last and conf["score"] >= 55:
-            action = "BUY"
-            setup_type = "💎 Pullback BUY"
-            reason = f"Testing 50 EMA dynamic support ({e50_last:.2f}) with bullish candle."
-
-        # Setup C: Golden Crossover BUY
-        elif is_ema20_cross and is_above_200 and conf["score"] >= 50:
-            action = "BUY"
-            setup_type = "⚡ Golden Cross BUY"
-            reason = f"EMA 20 crossed above EMA 50 with macro trend alignment."
-
-        # 2. EVALUATE EXIT CONDITIONS (For closing existing holdings)
-        # Condition A: Target 2 Reached
-        elif c_last >= target2:
-            action = "EXIT"
-            setup_type = "🏆 Target 2 Hit"
-            reason = f"Hit Target 2 ({target2:.2f} LKR, ~2.5R). Lock in full profits."
-
-        # Condition B: Target 1 Reached
-        elif c_last >= target1:
-            action = "EXIT"
-            setup_type = "🎯 Target 1 Hit"
-            reason = f"Hit Target 1 ({target1:.2f} LKR, ~1.5R). Lock in 50% profit and trail stop."
-
-        # Condition C: Stop Loss Breached
-        elif c_last <= suggested_stop:
-            action = "EXIT"
-            setup_type = "⚠️ Stop Loss Breached"
-            reason = f"Fell below risk boundary ({suggested_stop:.2f} LKR). Protect capital."
-
-        # Condition D: Trend Breakdown below 50 EMA
-        elif not is_above_50 and c_prev >= e50_prev and vol_ratio >= 1.3:
-            action = "EXIT"
-            setup_type = "🔻 Trend Breakdown"
-            reason = f"Broke below 50 EMA support ({e50_last:.2f} LKR) on high volume."
+            setup_type, reason = buy_res
+        else:
+            # Evaluate EXIT conditions
+            exit_res = self._eval_spot_exit_conditions(
+                c_last=c_last,
+                target2=target2,
+                target1=target1,
+                suggested_stop=suggested_stop,
+                is_above_50=ind["is_above_50"],
+                c_prev=ind["c_prev"],
+                e50_prev=ind["e50_prev"],
+                vol_ratio=ind["vol_ratio"],
+                e50_last=ind["e50_last"],
+            )
+            if exit_res:
+                action = "EXIT"
+                setup_type, reason = exit_res
+            else:
+                action = "HOLD"
+                setup_type = "Consolidation / Hold"
+                reason = "Price within established range; no immediate entry or exit triggered."
 
         return {
             "action": action,

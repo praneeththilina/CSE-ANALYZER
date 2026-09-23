@@ -49,9 +49,11 @@ class TestCoreEngines(unittest.TestCase):
         closes = np.linspace(100.0, 150.0, 100) + np.random.normal(0, 2, 100)
         highs = closes + np.random.uniform(1.0, 5.0, 100)
         lows = closes - np.random.uniform(1.0, 5.0, 100)
+        opens = closes + np.random.uniform(-1.0, 1.0, 100)
         volumes = np.random.randint(1000, 50000, 100)
 
         self.df = pd.DataFrame({
+            "open": opens,
             "close": closes,
             "high": highs,
             "low": lows,
@@ -259,6 +261,67 @@ class TestCoreEngines(unittest.TestCase):
         bars = engine.get_bars("COMB.N0000")
         self.assertFalse(bars.empty)
         self.assertIn("close", bars.columns)
+
+    def test_compute_spot_signals(self):
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+            db_path = tmp.name
+
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE symbols (symbol TEXT PRIMARY KEY, industry TEXT, enabled INTEGER)")
+        conn.execute("CREATE TABLE bars (symbol TEXT, date TEXT, close REAL, high REAL, low REAL, volume REAL)")
+        conn.commit()
+        conn.close()
+
+        engine = DataEngine(db_path=db_path)
+
+        # Insufficient data (<25 bars)
+        df_short = self.df.head(20)
+        res_short = engine.compute_spot_signals(df_short)
+        self.assertEqual(res_short["action"], "HOLD")
+        self.assertEqual(res_short["setup_type"], "Insufficient Data")
+
+        # Sufficient data test
+        res_full = engine.compute_spot_signals(self.df)
+        self.assertIn("action", res_full)
+        self.assertIn(res_full["action"], ["BUY", "EXIT", "HOLD"])
+        self.assertIn("setup_type", res_full)
+        self.assertIn("current_price", res_full)
+        self.assertIn("stop_loss", res_full)
+        self.assertIn("target1", res_full)
+        self.assertIn("target2", res_full)
+
+        # Helper method direct unit checks
+        ind = engine._calculate_spot_indicators(self.df)
+        self.assertIn("c_last", ind)
+        self.assertIn("conf", ind)
+
+        buy_check = engine._eval_spot_buy_setups(
+            c_last=100.0,
+            high_20d=95.0,
+            is_above_50=True,
+            vol_ratio=1.5,
+            conf_score=70,
+            is_above_200=True,
+            e50_last=90.0,
+            o_last=98.0,
+            is_ema20_cross=False,
+        )
+        self.assertIsNotNone(buy_check)
+        self.assertEqual(buy_check[0], "🚀 Breakout BUY")
+
+        exit_check = engine._eval_spot_exit_conditions(
+            c_last=120.0,
+            target2=115.0,
+            target1=110.0,
+            suggested_stop=100.0,
+            is_above_50=True,
+            c_prev=118.0,
+            e50_prev=105.0,
+            vol_ratio=1.0,
+            e50_last=106.0,
+        )
+        self.assertIsNotNone(exit_check)
+        self.assertEqual(exit_check[0], "🏆 Target 2 Hit")
 
 
 if __name__ == "__main__":
