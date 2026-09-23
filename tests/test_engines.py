@@ -234,6 +234,68 @@ class TestCoreEngines(unittest.TestCase):
         cb = MarketContextEngine.check_circuit_breakers_and_bands(120.0, 115.0)
         self.assertIn("upper_circuit_limit", cb)
 
+    def test_compute_benchmark_relative_strength_edge_cases(self):
+        # 1. Empty dataframe
+        empty_df = pd.DataFrame()
+        res_empty = MarketContextEngine.compute_benchmark_relative_strength(empty_df)
+        self.assertEqual(res_empty["beta"], 1.0)
+        self.assertEqual(res_empty["verdict"], "Neutral")
+
+        # 2. Short dataframe (< 20 rows)
+        short_df = pd.DataFrame({"close": [10.0] * 10})
+        res_short = MarketContextEngine.compute_benchmark_relative_strength(short_df)
+        self.assertEqual(res_short["beta"], 1.0)
+        self.assertEqual(res_short["verdict"], "Neutral")
+
+        # 3. Aligned length < 15 rows
+        # stock_df has 20 rows, but NaNs cause aligned return series to have < 15 rows.
+        dates_20 = pd.date_range("2023-01-01", periods=20, freq="D")
+        aspi_20 = pd.DataFrame({"close": np.linspace(100.0, 110.0, 20)}, index=dates_20)
+        stock_20 = pd.DataFrame({"close": [10.0] * 10 + [np.nan] * 10}, index=dates_20)
+        res_aligned_short = MarketContextEngine.compute_benchmark_relative_strength(stock_20, aspi_20)
+        self.assertEqual(res_aligned_short["beta"], 1.0)
+        self.assertEqual(res_aligned_short["verdict"], "Neutral")
+
+        # 4. Standard case with aspi_df = None (synthesized benchmark)
+        res_synthesized = MarketContextEngine.compute_benchmark_relative_strength(self.df, aspi_df=None)
+        self.assertIn("beta", res_synthesized)
+        self.assertIn("alpha", res_synthesized)
+        self.assertIn("rs_momentum_20d_pct", res_synthesized)
+        self.assertIn("verdict", res_synthesized)
+
+        # 5. Provided valid aspi_df with strong outperformance vs underperformance
+        dates = pd.date_range("2023-01-01", periods=100, freq="D")
+        # Stock surging upwards
+        stock_outperform = pd.DataFrame({"close": np.linspace(100.0, 200.0, 100)}, index=dates)
+        # ASPI remaining flat/decreasing
+        aspi_flat = pd.DataFrame({"close": np.linspace(100.0, 100.0, 100)}, index=dates)
+        res_strong = MarketContextEngine.compute_benchmark_relative_strength(stock_outperform, aspi_flat)
+        self.assertTrue(res_strong["outperforming_aspi"])
+        self.assertEqual(res_strong["verdict"], "Strong Outperformer vs ASPI")
+
+        # Underperforming stock
+        stock_underperform = pd.DataFrame({"close": np.linspace(200.0, 100.0, 100)}, index=dates)
+        res_weak = MarketContextEngine.compute_benchmark_relative_strength(stock_underperform, aspi_flat)
+        self.assertFalse(res_weak["outperforming_aspi"])
+        self.assertEqual(res_weak["verdict"], "Underperforming ASPI")
+
+        # Mild outperformer (+2% RS momentum)
+        stock_mild = pd.DataFrame({"close": np.linspace(100.0, 102.0, 100)}, index=dates)
+        res_mild = MarketContextEngine.compute_benchmark_relative_strength(stock_mild, aspi_flat)
+        self.assertTrue(res_mild["outperforming_aspi"])
+        self.assertEqual(res_mild["verdict"], "Mild Outperformer")
+
+        # In-Line with market (-2% RS momentum)
+        stock_inline = pd.DataFrame({"close": np.linspace(100.0, 98.0, 100)}, index=dates)
+        res_inline = MarketContextEngine.compute_benchmark_relative_strength(stock_inline, aspi_flat)
+        self.assertFalse(res_inline["outperforming_aspi"])
+        self.assertEqual(res_inline["verdict"], "In-Line with Market")
+
+        # 6. Zero variance benchmark returns (var_m <= 1e-8) -> Beta defaults to 1.0
+        # Constant ASPI price gives 0 return variance
+        res_zero_var = MarketContextEngine.compute_benchmark_relative_strength(self.df, aspi_flat)
+        self.assertEqual(res_zero_var["beta"], 1.0)
+
     def test_data_engine(self):
         with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
             db_path = tmp.name
