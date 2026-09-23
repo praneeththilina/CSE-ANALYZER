@@ -43,6 +43,19 @@ class TestCoreEngines(unittest.TestCase):
         self.assertIn("pat_hammer", df_res.columns)
         self.assertIn("regime", summary)
         self.assertIn("support_resistance", summary)
+        self.assertIn("pivot_points", summary)
+
+    def test_pivot_points(self):
+        pivots_std = TechnicalEngine.compute_pivot_points(self.df, method="standard")
+        self.assertIn("P", pivots_std)
+        self.assertIn("R1", pivots_std)
+        self.assertIn("S1", pivots_std)
+
+        pivots_fib = TechnicalEngine.compute_pivot_points(self.df, method="fibonacci")
+        self.assertIn("P", pivots_fib)
+
+        pivots_cam = TechnicalEngine.compute_pivot_points(self.df, method="camarilla")
+        self.assertIn("R3", pivots_cam)
 
     def test_fundamental_engine(self):
         profile = FundamentalEngine.generate_fundamental_profile(
@@ -58,11 +71,17 @@ class TestCoreEngines(unittest.TestCase):
         self.assertIn("z_score", profile["altman_z"])
 
     def test_backtest_engine(self):
-        res = BacktestEngine.run_spot_backtest(self.df, starting_capital=1_000_000.0)
+        res = BacktestEngine.run_spot_backtest(self.df, starting_capital=1_000_000.0, strategy_mode="QQE / Momentum")
         self.assertIn("return_pct", res)
         self.assertIn("total_trades", res)
         self.assertIn("win_rate_pct", res)
         self.assertIn("equity_curve", res)
+
+        res_ma = BacktestEngine.run_spot_backtest(self.df, starting_capital=1_000_000.0, strategy_mode="Dual MA Crossover")
+        self.assertIn("return_pct", res_ma)
+
+        res_rsi = BacktestEngine.run_spot_backtest(self.df, starting_capital=1_000_000.0, strategy_mode="RSI Mean Reversion")
+        self.assertIn("return_pct", res_rsi)
 
         wf_res = BacktestEngine.run_walk_forward_validation(self.df, window_size=50, out_of_sample_size=20)
         self.assertIn("folds", wf_res)

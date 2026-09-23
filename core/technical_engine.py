@@ -442,6 +442,53 @@ class TechnicalEngine:
         }
 
     @staticmethod
+    def compute_pivot_points(df: pd.DataFrame, method: str = "standard") -> Dict[str, float]:
+        """Compute intraday/daily Pivot Points (P, R1, R2, R3, S1, S2, S3) using Standard, Fibonacci, or Camarilla formulas."""
+        if df.empty or len(df) < 1:
+            return {"P": 0.0, "R1": 0.0, "R2": 0.0, "R3": 0.0, "S1": 0.0, "S2": 0.0, "S3": 0.0}
+
+        prev_bar = df.iloc[-2] if len(df) >= 2 else df.iloc[-1]
+        h = float(prev_bar["high"])
+        l = float(prev_bar["low"])
+        c = float(prev_bar["close"])
+
+        p = (h + l + c) / 3.0
+        range_hl = h - l
+
+        method_clean = method.lower().strip()
+        if method_clean == "fibonacci":
+            r1 = p + (0.382 * range_hl)
+            s1 = p - (0.382 * range_hl)
+            r2 = p + (0.618 * range_hl)
+            s2 = p - (0.618 * range_hl)
+            r3 = p + (1.000 * range_hl)
+            s3 = p - (1.000 * range_hl)
+        elif method_clean == "camarilla":
+            r1 = c + (range_hl * 1.1 / 12.0)
+            s1 = c - (range_hl * 1.1 / 12.0)
+            r2 = c + (range_hl * 1.1 / 6.0)
+            s2 = c - (range_hl * 1.1 / 6.0)
+            r3 = c + (range_hl * 1.1 / 4.0)
+            s3 = c - (range_hl * 1.1 / 4.0)
+        else:  # Standard
+            r1 = (2.0 * p) - l
+            s1 = (2.0 * p) - h
+            r2 = p + range_hl
+            s2 = p - range_hl
+            r3 = h + 2.0 * (p - l)
+            s3 = l - 2.0 * (h - p)
+
+        return {
+            "P": round(p, 2),
+            "R1": round(r1, 2),
+            "R2": round(r2, 2),
+            "R3": round(r3, 2),
+            "S1": round(s1, 2),
+            "S2": round(s2, 2),
+            "S3": round(s3, 2)
+        }
+
+    @staticmethod
     def check_breakouts(df: pd.DataFrame) -> Dict[str, Any]:
         """Scan for 52-week Highs/Lows and 20-day channel breakouts (Feature 20)."""
         if len(df) < 20:
@@ -492,6 +539,7 @@ class TechnicalEngine:
         df = cls.recognize_candlestick_patterns(df)
 
         sr_levels = cls.detect_support_resistance(df)
+        pivots = cls.compute_pivot_points(df)
         regime = cls.classify_market_regime(df)
         mtf = cls.compute_multi_timeframe_alignment(df)
         breakout = cls.check_breakouts(df)
@@ -499,6 +547,7 @@ class TechnicalEngine:
         summary = {
             "regime": regime,
             "support_resistance": sr_levels,
+            "pivot_points": pivots,
             "multi_timeframe": mtf,
             "breakouts": breakout
         }

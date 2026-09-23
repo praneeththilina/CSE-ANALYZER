@@ -95,6 +95,10 @@ class ChartTab(ttk.Frame):
         ttk.Checkbutton(self.tv_toolbar, text="S/R", variable=self.show_sr_var,
                         command=self._on_toggle_levels).pack(side="left", padx=2)
 
+        self.show_pivots_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(self.tv_toolbar, text="Pivots", variable=self.show_pivots_var,
+                        command=self._on_toggle_levels).pack(side="left", padx=2)
+
         self.show_fib_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(self.tv_toolbar, text="Fibonacci", variable=self.show_fib_var,
                         command=self._on_toggle_levels).pack(side="left", padx=2)
@@ -519,6 +523,28 @@ class ChartTab(ttk.Frame):
                 hlines_list.append(r1)
                 colors_list.append("#e11d48")
                 styles_list.append(":")
+
+        # Pivot Points levels
+        if getattr(self, "show_pivots_var", None) and self.show_pivots_var.get():
+            try:
+                pivots = self.app.engine.compute_pivot_points(ohlcv)
+                p_val = pivots.get("P", 0)
+                r1_val = pivots.get("R1", 0)
+                s1_val = pivots.get("S1", 0)
+                if p_val > 0:
+                    hlines_list.append(p_val)
+                    colors_list.append("#0284c7")
+                    styles_list.append("-.")
+                if r1_val > 0:
+                    hlines_list.append(r1_val)
+                    colors_list.append("#f43f5e")
+                    styles_list.append(":")
+                if s1_val > 0:
+                    hlines_list.append(s1_val)
+                    colors_list.append("#10b981")
+                    styles_list.append(":")
+            except Exception:
+                pass
 
         # Fibonacci Retracement levels
         if self.show_fib_var.get() and confluence:

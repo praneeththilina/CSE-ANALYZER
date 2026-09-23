@@ -40,6 +40,7 @@ class PortfolioTab(ttk.Frame):
         header = ttk.Frame(self)
         header.pack(fill="x", pady=(0, 10))
         ttk.Label(header, text="Portfolio Tracker", font=FONT_TITLE).pack(side="left")
+        ttk.Button(header, text="📥 Export CSV", command=self._export_csv).pack(side="right", padx=(4, 0))
         ttk.Button(header, text="🔄 Refresh", command=self.load_data).pack(side="right")
 
         # ── Add Trade Colorful Form Card ────────────────────────────────
@@ -411,6 +412,38 @@ class PortfolioTab(ttk.Frame):
             self.app.set_status(res.get("summary", "Rebalance calculation complete."))
 
         ThreadedTask(self.app.root, target=task, on_done=on_done, on_error=self._on_error).start()
+
+    def _export_csv(self):
+        import csv
+        from tkinter import filedialog
+        positions = self.app.engine.get_portfolio_positions()
+        if not positions:
+            messagebox.showinfo("Export", "No portfolio positions available to export.")
+            return
+
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")],
+            title="Export Portfolio Positions to CSV"
+        )
+        if not filename:
+            return
+
+        try:
+            with open(filename, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(["Trade ID", "Symbol", "Industry", "Side", "Quantity", "Entry Price (LKR)", "Current Price (LKR)", "Cost Basis (LKR)", "Current Value (LKR)", "P&L (LKR)", "P&L %", "Trade Date"])
+                for p in positions:
+                    writer.writerow([
+                        p.get("id"), p.get("symbol"), p.get("industry"), p.get("side"),
+                        p.get("quantity"), p.get("entry_price"), p.get("current_price"),
+                        p.get("cost_basis"), p.get("current_value"), p.get("pnl"),
+                        p.get("pnl_pct"), p.get("trade_date")
+                    ])
+            messagebox.showinfo("Export Complete", f"Successfully exported {len(positions)} positions to CSV:\n{filename}")
+            self.app.set_status(f"Exported portfolio to {filename}")
+        except Exception as e:
+            messagebox.showerror("Export Error", str(e))
 
     def _delete_trade(self):
         sel = self.tree.selection()
