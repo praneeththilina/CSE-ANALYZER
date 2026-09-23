@@ -260,6 +260,62 @@ class TestCoreEngines(unittest.TestCase):
         self.assertFalse(bars.empty)
         self.assertIn("close", bars.columns)
 
+    def test_compute_fibonacci_levels(self):
+        # 1. Empty DataFrame
+        empty_df = pd.DataFrame()
+        self.assertEqual(DataEngine.compute_fibonacci_levels(empty_df), {})
+
+        # 2. DataFrame with fewer than 10 rows
+        small_df = pd.DataFrame({
+            "high": [110.0] * 5,
+            "low": [90.0] * 5,
+            "close": [100.0] * 5
+        })
+        self.assertEqual(DataEngine.compute_fibonacci_levels(small_df), {})
+
+        # 3. Flat price DataFrame (diff <= 0)
+        flat_df = pd.DataFrame({
+            "high": [100.0] * 15,
+            "low": [100.0] * 15,
+            "close": [100.0] * 15
+        })
+        self.assertEqual(DataEngine.compute_fibonacci_levels(flat_df), {})
+
+        # 4. Standard happy path
+        highs = [150.0] * 14 + [200.0]  # high_max = 200.0
+        lows = [120.0] * 14 + [100.0]   # low_min = 100.0
+        closes = [130.0] * 15
+        valid_df = pd.DataFrame({"high": highs, "low": lows, "close": closes})
+
+        fibs = DataEngine.compute_fibonacci_levels(valid_df)
+        expected = {
+            "fib_0": 200.0,
+            "fib_236": 176.4,
+            "fib_382": 161.8,
+            "fib_500": 150.0,
+            "fib_618": 138.2,
+            "fib_786": 121.4,
+            "fib_100": 100.0,
+        }
+        self.assertEqual(fibs, expected)
+
+        # 5. Lookback parameter behavior
+        # First 30 rows have high=500, low=50
+        # Last 120 rows have high=200, low=100
+        lookback_df = pd.DataFrame({
+            "high": [500.0] * 30 + [200.0] * 120,
+            "low": [50.0] * 30 + [100.0] * 120,
+            "close": [200.0] * 150
+        })
+
+        fibs_lookback_120 = DataEngine.compute_fibonacci_levels(lookback_df, lookback=120)
+        self.assertEqual(fibs_lookback_120["fib_0"], 200.0)
+        self.assertEqual(fibs_lookback_120["fib_100"], 100.0)
+
+        fibs_lookback_150 = DataEngine.compute_fibonacci_levels(lookback_df, lookback=150)
+        self.assertEqual(fibs_lookback_150["fib_0"], 500.0)
+        self.assertEqual(fibs_lookback_150["fib_100"], 50.0)
+
 
 if __name__ == "__main__":
     unittest.main()
