@@ -365,6 +365,11 @@ class DataEngine:
             return {"weekly_bullish": True, "weekly_text": "▲ Bullish"}
 
     @staticmethod
+    def compute_pivot_points(df: pd.DataFrame, method: str = "standard") -> Dict[str, float]:
+        """Compute intraday/daily Pivot Points (P, R1, R2, R3, S1, S2, S3)."""
+        return TechnicalEngine.compute_pivot_points(df, method=method)
+
+    @staticmethod
     def compute_fibonacci_levels(df: pd.DataFrame, lookback: int = 120) -> Dict[str, float]:
         """
         Computes standard Fibonacci retracement levels from highest high to lowest low.
@@ -2101,7 +2106,8 @@ class DataEngine:
         target1_rr: float = 1.5,
         target2_rr: float = 2.5,
         atr_stop_multiplier: float = 1.5,
-        slippage_pct: float = 0.3
+        slippage_pct: float = 0.3,
+        strategy_mode: str = "QQE / Momentum"
     ) -> Dict[str, Any]:
         """Run realistic CSE spot equity backtest with 1.12% fees and slippage (Feature 44)."""
         if isinstance(symbol, pd.DataFrame):
@@ -2116,7 +2122,8 @@ class DataEngine:
             target1_rr=target1_rr,
             target2_rr=target2_rr,
             atr_stop_multiplier=atr_stop_multiplier,
-            slippage_pct=slippage_pct
+            slippage_pct=slippage_pct,
+            strategy_mode=strategy_mode
         )
 
     def run_backtest(
@@ -2126,18 +2133,21 @@ class DataEngine:
         commission_pct: float = 1.12,
         allocation_pct: float = 100.0,
         strategy_mode: str = "all",
+        strategy: str = "all",
         target1_rr: float = 1.5,
         target2_rr: float = 2.5,
         sl_atr: float = 1.5,
         use_trailing: bool = True
     ) -> Dict[str, Any]:
         """Run spot equity backtest and return structured dictionaries for BacktestTab UI."""
+        strat = strategy if strategy != "all" else strategy_mode
         raw = self.run_spot_backtest(
             symbol=symbol,
             starting_capital=float(capital),
             target1_rr=float(target1_rr),
             target2_rr=float(target2_rr),
-            atr_stop_multiplier=float(sl_atr)
+            atr_stop_multiplier=float(sl_atr),
+            strategy_mode=strat
         )
         trades = raw.get("trades", [])
         trades_df = pd.DataFrame(trades) if trades else pd.DataFrame()

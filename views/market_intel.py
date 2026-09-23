@@ -79,10 +79,15 @@ class MarketIntelTab(ttk.Frame):
         self.tab_anomalies = ttk.Frame(self.intel_notebook, padding=12)
         self.intel_notebook.add(self.tab_anomalies, text="  🚨 Market Anomaly Radar  ")
 
+        # Sub-tab 5: Side-by-Side Stock Comparison
+        self.tab_compare = ttk.Frame(self.intel_notebook, padding=12)
+        self.intel_notebook.add(self.tab_compare, text="  ⚔️ Stock Comparison  ")
+
         self._build_fundamentals_tab()
         self._build_macro_tab()
         self._build_news_tab()
         self._build_anomalies_tab()
+        self._build_comparison_tab()
 
     # ── Tab 1: Fundamentals & Health ────────────────────────────────────
 
@@ -254,6 +259,132 @@ class MarketIntelTab(ttk.Frame):
             highlightcolor="#cbd5e1"
         )
         self.txt_anomalies.pack(fill="both", expand=True, padx=4, pady=4)
+
+    # ── Tab 5: Stock Comparison ─────────────────────────────────────────
+
+    def _build_comparison_tab(self):
+        frame = FormCard(self.tab_compare, title="⚔️ Side-by-Side Multi-Metric Stock Benchmarking")
+        frame.pack(fill="both", expand=True)
+
+        symbols = self.engine.get_symbol_list()
+
+        top_row = ttk.Frame(frame)
+        top_row.pack(fill="x", padx=4, pady=(0, 8))
+
+        ttk.Label(top_row, text="Equity A:", font=FONT_BODY).pack(side="left", padx=(0, 4))
+        self.comp_a_var = tk.StringVar(value="COMB.N0000")
+        ttk.Combobox(top_row, textvariable=self.comp_a_var, values=symbols, width=14).pack(side="left", padx=(0, 12))
+
+        ttk.Label(top_row, text="Equity B:", font=FONT_BODY).pack(side="left", padx=(0, 4))
+        self.comp_b_var = tk.StringVar(value="JKH.N0000")
+        ttk.Combobox(top_row, textvariable=self.comp_b_var, values=symbols, width=14).pack(side="left", padx=(0, 12))
+
+        ttk.Label(top_row, text="Equity C:", font=FONT_BODY).pack(side="left", padx=(0, 4))
+        self.comp_c_var = tk.StringVar(value="SAMP.N0000")
+        ttk.Combobox(top_row, textvariable=self.comp_c_var, values=symbols, width=14).pack(side="left", padx=(0, 12))
+
+        ttk.Button(top_row, text="⚔️ Compare Equities", style="Accent.TButton", command=self._run_stock_comparison).pack(side="left", padx=6)
+
+        cols = [
+            ("metric", "Metric / Analytical Dimension", 240),
+            ("stock_a", "Equity A", 160),
+            ("stock_b", "Equity B", 160),
+            ("stock_c", "Equity C", 160),
+            ("winner", "Top Winner / Advantage", 180),
+        ]
+        self.tree_comp = SortableTreeview(frame, cols, selectmode="browse")
+        self.tree_comp.pack(fill="both", expand=True, padx=4, pady=4)
+
+        self.tree_comp.tag_configure("winner_tag", foreground=WIN11_GREEN)
+
+    def _run_stock_comparison(self):
+        sym_a = self.comp_a_var.get().strip().upper()
+        sym_b = self.comp_b_var.get().strip().upper()
+        sym_c = self.comp_c_var.get().strip().upper()
+
+        if not sym_a or not sym_b:
+            return
+
+        self.app.set_status(f"Benchmarking {sym_a} vs {sym_b} vs {sym_c}...")
+        self.app.start_progress()
+
+        def task():
+            a_data = self._get_full_comparison_profile(sym_a)
+            b_data = self._get_full_comparison_profile(sym_b)
+            c_data = self._get_full_comparison_profile(sym_c) if sym_c else None
+            return a_data, b_data, c_data
+
+        def on_done(res):
+            self.app.stop_progress()
+            self.app.set_status("Comparison complete.")
+            a_d, b_d, c_d = res
+            self._render_comparison_matrix(sym_a, a_d, sym_b, b_d, sym_c, c_d)
+
+        ThreadedTask(self.app.root, target=task, on_done=on_done, on_error=self._on_error).start()
+
+    def _get_full_comparison_profile(self, sym: str) -> Dict[str, Any]:
+        fund = self.engine.get_fundamental_profile(sym)
+        scorecard = self.engine.get_composite_scorecard(sym)
+        return {"fundamental": fund, "scorecard": scorecard}
+
+    def _render_comparison_matrix(self, sym_a: str, a: dict, sym_b: str, b: dict, sym_c: str, c: Optional[dict]):
+        self.tree_comp.heading("stock_a", text=sym_a)
+        self.tree_comp.heading("stock_b", text=sym_b)
+        self.tree_comp.heading("stock_c", text=sym_c if sym_c else "—")
+
+        self.tree_comp.delete(*self.tree_comp.get_children())
+
+        f_a = a.get("fundamental", {})
+        f_b = b.get("fundamental", {})
+        f_c = c.get("fundamental", {}) if c else {}
+
+        s_a = a.get("scorecard", {})
+        s_b = b.get("scorecard", {})
+        s_c = c.get("scorecard", {}) if c else {}
+
+        metrics = [
+            ("Company Name", f_a.get("company_name", sym_a), f_b.get("company_name", sym_b), f_c.get("company_name", "—"), "—"),
+            ("Industry Sector", f_a.get("industry", "—"), f_b.get("industry", "—"), f_c.get("industry", "—"), "—"),
+            ("Current Price (LKR)", f"₨{f_a.get('current_price', 0):.2f}", f"₨{f_b.get('current_price', 0):.2f}", f"₨{f_c.get('current_price', 0):.2f}" if c else "—", "—"),
+            ("P/E Ratio", f"{f_a.get('pe_ratio', 0):.1f}x", f"{f_b.get('pe_ratio', 0):.1f}x", f"{f_c.get('pe_ratio', 0):.1f}x" if c else "—",
+             self._pick_lowest_winner(sym_a, f_a.get("pe_ratio", 999), sym_b, f_b.get("pe_ratio", 999), sym_c, f_c.get("pe_ratio", 999) if c else 999)),
+            ("P/B Ratio", f"{f_a.get('pb_ratio', 0):.2f}x", f"{f_b.get('pb_ratio', 0):.2f}x", f"{f_c.get('pb_ratio', 0):.2f}x" if c else "—",
+             self._pick_lowest_winner(sym_a, f_a.get("pb_ratio", 999), sym_b, f_b.get("pb_ratio", 999), sym_c, f_c.get("pb_ratio", 999) if c else 999)),
+            ("ROE %", f"{f_a.get('roe_pct', 0):.1f}%", f"{f_b.get('roe_pct', 0):.1f}%", f"{f_c.get('roe_pct', 0):.1f}%" if c else "—",
+             self._pick_highest_winner(sym_a, f_a.get("roe_pct", -99), sym_b, f_b.get("roe_pct", -99), sym_c, f_c.get("roe_pct", -99) if c else -99)),
+            ("Dividend Yield %", f"{f_a.get('dividend_yield_pct', 0):.1f}%", f"{f_b.get('dividend_yield_pct', 0):.1f}%", f"{f_c.get('dividend_yield_pct', 0):.1f}%" if c else "—",
+             self._pick_highest_winner(sym_a, f_a.get("dividend_yield_pct", 0), sym_b, f_b.get("dividend_yield_pct", 0), sym_c, f_c.get("dividend_yield_pct", 0) if c else 0)),
+            ("Piotroski F-Score", f"{f_a.get('piotroski', {}).get('f_score', 0)} / 9", f"{f_b.get('piotroski', {}).get('f_score', 0)} / 9", f"{f_c.get('piotroski', {}).get('f_score', 0)} / 9" if c else "—",
+             self._pick_highest_winner(sym_a, f_a.get('piotroski', {}).get('f_score', 0), sym_b, f_b.get('piotroski', {}).get('f_score', 0), sym_c, f_c.get('piotroski', {}).get('f_score', 0) if c else 0)),
+            ("Altman Z Zone", f_a.get("altman_z", {}).get("zone", "—"), f_b.get("altman_z", {}).get("zone", "—"), f_c.get("altman_z", {}).get("zone", "—") if c else "—", "—"),
+            ("DCF Fair Value", f"₨{f_a.get('dcf_value', 0):.2f}" if f_a.get("dcf_value") else "N/A", f"₨{f_b.get('dcf_value', 0):.2f}" if f_b.get("dcf_value") else "N/A", f"₨{f_c.get('dcf_value', 0):.2f}" if c and f_c.get("dcf_value") else "—", "—"),
+            ("ML Calibrated Win Prob", f"{s_a.get('calibrated_win_prob_pct', 50):.1f}%", f"{s_b.get('calibrated_win_prob_pct', 50):.1f}%", f"{s_c.get('calibrated_win_prob_pct', 50):.1f}%" if c else "—",
+             self._pick_highest_winner(sym_a, s_a.get('calibrated_win_prob_pct', 0), sym_b, s_b.get('calibrated_win_prob_pct', 0), sym_c, s_c.get('calibrated_win_prob_pct', 0) if c else 0)),
+            ("Composite Decision", s_a.get("decision", "HOLD"), s_b.get("decision", "HOLD"), s_c.get("decision", "HOLD") if c else "—", "—"),
+        ]
+
+        for m_lbl, val_a, val_b, val_c, winner in metrics:
+            tag = "winner_tag" if "🏆" in winner else ""
+            self.tree_comp.insert("", "end", values=(m_lbl, val_a, val_b, val_c, winner), tags=(tag,))
+
+    @staticmethod
+    def _pick_highest_winner(s_a, v_a, s_b, v_b, s_c, v_c) -> str:
+        vals = [(s_a, float(v_a)), (s_b, float(v_b))]
+        if s_c and v_c is not None:
+            vals.append((s_c, float(v_c)))
+        best = max(vals, key=lambda x: x[1])
+        return f"🏆 {best[0]} ({best[1]:.1f})"
+
+    @staticmethod
+    def _pick_lowest_winner(s_a, v_a, s_b, v_b, s_c, v_c) -> str:
+        vals = [(s_a, float(v_a)), (s_b, float(v_b))]
+        if s_c and v_c is not None and float(v_c) > 0:
+            vals.append((s_c, float(v_c)))
+        vals = [x for x in vals if x[1] > 0]
+        if not vals:
+            return "—"
+        best = min(vals, key=lambda x: x[1])
+        return f"🏆 {best[0]} ({best[1]:.1f})"
 
     # ── Data Loading Logic ──────────────────────────────────────────────
 

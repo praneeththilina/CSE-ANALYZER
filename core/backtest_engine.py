@@ -30,7 +30,8 @@ class BacktestEngine:
         target2_rr: float = 2.5,
         atr_stop_multiplier: float = 1.5,
         slippage_pct: float = 0.3,            # 0.3% average execution slippage
-        benchmark_aspi_return_pct: float = 12.0
+        benchmark_aspi_return_pct: float = 12.0,
+        strategy_mode: str = "QQE / Momentum"
     ) -> Dict[str, Any]:
         """Simulate a spot equity strategy with realistic CSE execution friction (Feature 44 & 47)."""
         if df.empty or len(df) < 50:
@@ -57,9 +58,18 @@ class BacktestEngine:
         tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
         atr_series = tr.ewm(span=14, adjust=False).mean().fillna(tr).values
 
-        # EMAs for trend confirmation
+        # EMAs & RSI for trend & signal confirmation
         ema20 = df["close"].ewm(span=20, adjust=False).mean().values
         ema50 = df["close"].ewm(span=50, adjust=False).mean().values
+        ema200 = df["close"].ewm(span=200, adjust=False).mean().values if len(df) >= 50 else ema50
+
+        delta = df["close"].diff()
+        gain = delta.clip(lower=0)
+        loss = -delta.clip(upper=0)
+        avg_gain = gain.ewm(alpha=1.0 / 14, min_periods=14, adjust=False).mean()
+        avg_loss = loss.ewm(alpha=1.0 / 14, min_periods=14, adjust=False).mean().replace(0, np.nan)
+        rs = avg_gain / avg_loss
+        rsi_series = (100.0 - (100.0 / (1.0 + rs))).fillna(50.0).values
 
         # State tracking
         cash = starting_capital
@@ -189,12 +199,21 @@ class BacktestEngine:
 
             # Check BUY Setup entry condition (Only if flat cash)
             elif position_qty == 0:
-                # Momentum & Pullback spot buy trigger
-                is_uptrend = c > ema50[i] and ema20[i] >= ema50[i] * 0.99
-                price_bounce = c > ema20[i] and close[i - 1] <= ema20[i - 1] * 1.01
-                breakout_20d = c >= float(np.max(high[max(0, i - 20): i]))
+                strat_clean = str(strategy_mode).lower().strip()
+                if "dual" in strat_clean or "cross" in strat_clean:
+                    # Dual MA Crossover: EMA 20 crosses above EMA 50
+                    trigger_buy = (ema20[i] > ema50[i]) and (ema20[i - 1] <= ema50[i - 1]) and (c >= ema200[i] if len(ema200) > i else True)
+                elif "rsi" in strat_clean or "reversion" in strat_clean:
+                    # RSI Oversold Reversion
+                    trigger_buy = (rsi_series[i] < 38 and rsi_series[i] > rsi_series[i - 1]) or (rsi_series[i - 1] <= 30 and rsi_series[i] > 30)
+                else:
+                    # QQE / Momentum (default)
+                    is_uptrend = c > ema50[i] and ema20[i] >= ema50[i] * 0.99
+                    price_bounce = c > ema20[i] and close[i - 1] <= ema20[i - 1] * 1.01
+                    breakout_20d = c >= float(np.max(high[max(0, i - 20): i]))
+                    trigger_buy = is_uptrend and (price_bounce or breakout_20d)
 
-                if is_uptrend and (price_bounce or breakout_20d):
+                if trigger_buy:
                     entry_price = c
                     stop_dist = max(atr_val * atr_stop_multiplier, entry_price * 0.02)
                     stop_level = round(entry_price - stop_dist, 2)

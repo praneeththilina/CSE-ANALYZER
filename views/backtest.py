@@ -74,8 +74,15 @@ class BacktestTab(ttk.Frame):
 
         tk.Label(row1, text="Strategy:", font=FONT_BODY, bg="#f0fdf4", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.strat_var = tk.StringVar(value="All Spot Setups")
-        strat_cb = ttk.Combobox(row1, textvariable=self.strat_var, width=17, state="readonly")
-        strat_cb["values"] = ["All Spot Setups", "🚀 Breakout BUY", "💎 Pullback BUY", "⚡ Golden Cross BUY"]
+        strat_cb = ttk.Combobox(row1, textvariable=self.strat_var, width=22, state="readonly")
+        strat_cb["values"] = [
+            "All Spot Setups",
+            "🚀 Breakout BUY",
+            "💎 Pullback BUY",
+            "⚡ Golden Cross BUY",
+            "📊 Dual MA Crossover",
+            "📉 RSI Oversold Reversion"
+        ]
         strat_cb.pack(side="left")
 
         row2 = tk.Frame(self.config_card.body, bg="#f0fdf4")
@@ -209,6 +216,8 @@ class BacktestTab(ttk.Frame):
             "🚀 Breakout BUY": "breakout",
             "💎 Pullback BUY": "pullback",
             "⚡ Golden Cross BUY": "golden_cross",
+            "📊 Dual MA Crossover": "dual_ma_crossover",
+            "📉 RSI Oversold Reversion": "rsi_reversion",
         }
         params = {
             "symbol": symbol,
