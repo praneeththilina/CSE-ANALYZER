@@ -1585,6 +1585,7 @@ class DataEngine:
         """
         Retrieves all items in a watchlist enriched with current price,
         day change %, confluence grade, trend status, and price alert status.
+        Batch fetches bars for all symbols in the watchlist to avoid N+1 queries.
         """
         con = self.connect()
         try:
@@ -1596,11 +1597,39 @@ class DataEngine:
                 return []
 
             ind_map = {r[0]: r[1] for r in con.execute("SELECT symbol, COALESCE(industry, '') FROM symbols").fetchall()}
+
+            symbols_in_list = list({r[1] for r in rows})
+            bars_by_symbol: Dict[str, list] = {}
+            if symbols_in_list:
+                placeholders = ",".join("?" for _ in symbols_in_list)
+                raw_bars = con.execute(
+                    f"SELECT symbol, date, close, high, low, volume FROM bars "
+                    f"WHERE symbol IN ({placeholders}) ORDER BY symbol, date",
+                    symbols_in_list
+                ).fetchall()
+                for r in raw_bars:
+                    bars_by_symbol.setdefault(r[0], []).append(r[1:])
+
             items = []
             for wid, sym, a_high, a_low, notes, afreq, exp_days, last_trig, created_at in rows:
                 afreq = afreq or "ALWAYS"
                 exp_days = int(exp_days if exp_days is not None else 30)
-                bars_df = self.get_bars(sym)
+
+                sym_rows = bars_by_symbol.get(sym, [])
+                if sym_rows:
+                    bars_df = pd.DataFrame(sym_rows, columns=["date", "close", "high", "low", "volume"])
+                    bars_df["date"] = pd.to_datetime(bars_df["date"])
+                    bars_df = bars_df.set_index("date").sort_index()
+                    for c in ["close", "high", "low", "volume"]:
+                        bars_df[c] = pd.to_numeric(bars_df[c], errors="coerce")
+                    bars_df["volume"] = bars_df["volume"].fillna(0)
+                    bars_df["open"] = bars_df["close"].shift(1)
+                    if not bars_df.empty:
+                        bars_df.iloc[0, bars_df.columns.get_loc("open")] = bars_df.iloc[0]["close"]
+                    bars_df = bars_df.dropna(subset=["close"])
+                else:
+                    bars_df = pd.DataFrame(columns=["date", "close", "high", "low", "volume"])
+
                 c_last = 0.0
                 day_chg_pct = 0.0
                 confluence = {"grade": "—", "stars": "—", "trend_text": "—", "score": 0}
