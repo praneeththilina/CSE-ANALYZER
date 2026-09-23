@@ -5,7 +5,6 @@ Provides robust fallback characters that render crisply on Windows 11 Segoe UI.
 """
 from __future__ import annotations
 
-import sys
 from typing import Dict
 
 # Scalable Unicode & Symbol Map
