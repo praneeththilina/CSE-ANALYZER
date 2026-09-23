@@ -80,6 +80,129 @@ class RiskScorecardEngine:
         }
 
     @classmethod
+    def calculate_portfolio_rebalance(
+        cls,
+        holdings: List[Dict[str, Any]],
+        target_mode: str = "EQUAL_WEIGHT",
+        custom_weights: Optional[Dict[str, float]] = None,
+        portfolio_cash: float = 0.0,
+        min_trade_lkr: float = 5000.0
+    ) -> Dict[str, Any]:
+        """Compute portfolio rebalancing trade orders to align current holdings with target allocation model."""
+        if not holdings:
+            return {
+                "total_portfolio_value": round(portfolio_cash, 2),
+                "rebalance_trades": [],
+                "summary": "Portfolio is empty. Add position holdings to rebalance."
+            }
+
+        # Calculate current position values and total portfolio value
+        total_stock_val = sum(
+            float(h.get("market_value", h.get("current_value", float(h.get("qty", h.get("quantity", 0))) * float(h.get("current_price", 0)))))
+            for h in holdings
+        )
+        total_port_val = total_stock_val + portfolio_cash
+
+        if total_port_val <= 0:
+            return {
+                "total_portfolio_value": 0.0,
+                "rebalance_trades": [],
+                "summary": "Total portfolio value is zero."
+            }
+
+        unique_symbols = sorted(list({h.get("symbol") for h in holdings if h.get("symbol")}))
+        n_assets = len(unique_symbols)
+
+        if n_assets == 0:
+            return {
+                "total_portfolio_value": round(total_port_val, 2),
+                "rebalance_trades": [],
+                "summary": "No valid stock symbols found."
+            }
+
+        # Determine target weight for each symbol
+        target_weights_map: Dict[str, float] = {}
+        if target_mode == "CUSTOM" and custom_weights:
+            tot_w = sum(custom_weights.values()) if custom_weights else 1.0
+            for sym in unique_symbols:
+                raw_w = custom_weights.get(sym, custom_weights.get(sym.split(".")[0], 0.0))
+                target_weights_map[sym] = (raw_w / tot_w) if tot_w > 0 else (1.0 / n_assets)
+        else:
+            # Default EQUAL_WEIGHT across unique active assets
+            eq_w = 1.0 / n_assets
+            for sym in unique_symbols:
+                target_weights_map[sym] = eq_w
+
+        # Aggregate current values per symbol
+        symbol_curr_val: Dict[str, float] = {sym: 0.0 for sym in unique_symbols}
+        symbol_curr_qty: Dict[str, int] = {sym: 0 for sym in unique_symbols}
+        symbol_curr_price: Dict[str, float] = {sym: 0.0 for sym in unique_symbols}
+
+        for h in holdings:
+            sym = h.get("symbol")
+            if not sym:
+                continue
+            p = float(h.get("current_price", 0.0))
+            q = int(float(h.get("qty", h.get("quantity", 0))))
+            val = float(h.get("market_value", h.get("current_value", q * p)))
+            symbol_curr_val[sym] += val
+            symbol_curr_qty[sym] += q
+            if p > 0:
+                symbol_curr_price[sym] = p
+
+        rebalance_trades: List[Dict[str, Any]] = []
+
+        for sym in unique_symbols:
+            curr_val = symbol_curr_val[sym]
+            curr_pct = (curr_val / total_port_val) * 100.0
+            target_pct = target_weights_map[sym] * 100.0
+            target_val = total_port_val * target_weights_map[sym]
+
+            price = symbol_curr_price[sym]
+            diff_lkr = target_val - curr_val
+
+            if abs(diff_lkr) < min_trade_lkr or price <= 0:
+                action = "HOLD"
+                shares_to_trade = 0
+                est_trade_val = 0.0
+            elif diff_lkr > 0:
+                action = "BUY"
+                raw_shares = int(diff_lkr // price)
+                shares_to_trade = (raw_shares // 10) * 10  # Round to CSE lot size of 10
+                est_trade_val = round(shares_to_trade * price, 2)
+                if shares_to_trade <= 0:
+                    action = "HOLD"
+            else:
+                action = "SELL"
+                raw_shares = int(abs(diff_lkr) // price)
+                shares_to_trade = (raw_shares // 10) * 10
+                shares_to_trade = min(shares_to_trade, symbol_curr_qty[sym])
+                est_trade_val = round(shares_to_trade * price, 2)
+                if shares_to_trade <= 0:
+                    action = "HOLD"
+
+            target_qty = symbol_curr_qty[sym] + shares_to_trade if action == "BUY" else symbol_curr_qty[sym] - shares_to_trade
+
+            rebalance_trades.append({
+                "symbol": sym,
+                "action": action,
+                "current_price": price,
+                "current_qty": symbol_curr_qty[sym],
+                "current_pct": round(curr_pct, 1),
+                "target_pct": round(target_pct, 1),
+                "target_qty": max(0, target_qty),
+                "shares_to_trade": shares_to_trade,
+                "est_trade_lkr": est_trade_val,
+                "diff_lkr": round(diff_lkr, 2)
+            })
+
+        return {
+            "total_portfolio_value": round(total_port_val, 2),
+            "rebalance_trades": rebalance_trades,
+            "summary": f"Calculated rebalance plan for {len(rebalance_trades)} holdings."
+        }
+
+    @classmethod
     def evaluate_portfolio_risk(
         cls,
         holdings: List[Dict[str, Any]],

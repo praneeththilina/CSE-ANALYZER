@@ -104,9 +104,17 @@ class WatchlistTab(ttk.Frame):
         self.alert_low_var = tk.StringVar()
         ttk.Entry(form_top, textvariable=self.alert_low_var, width=8).pack(side="left", padx=(0, 8))
 
+        tk.Label(form_top, text="Freq:", font=FONT_BODY, bg="#fffbeb", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
+        self.freq_var = tk.StringVar(value="ALWAYS")
+        ttk.Combobox(form_top, textvariable=self.freq_var, values=["ALWAYS", "ONCE", "DAILY"], width=8, state="readonly").pack(side="left", padx=(0, 8))
+
+        tk.Label(form_top, text="Expiry (Days):", font=FONT_BODY, bg="#fffbeb", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
+        self.expiry_var = tk.StringVar(value="30")
+        ttk.Entry(form_top, textvariable=self.expiry_var, width=5).pack(side="left", padx=(0, 8))
+
         tk.Label(form_top, text="Notes:", font=FONT_BODY, bg="#fffbeb", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
         self.notes_var = tk.StringVar()
-        ttk.Entry(form_top, textvariable=self.notes_var, width=20).pack(side="left", padx=(0, 8))
+        ttk.Entry(form_top, textvariable=self.notes_var, width=16).pack(side="left", padx=(0, 8))
 
         ttk.Button(form_top, text="➕ Add / Update", command=self._add_or_update_item, style="Accent.TButton").pack(side="left", padx=4)
 
@@ -115,16 +123,18 @@ class WatchlistTab(ttk.Frame):
         table_frame.pack(fill="both", expand=True, pady=(0, 8))
 
         col_defs = [
-            ("symbol", "Symbol", 110, "w"),
-            ("industry", "Industry / Sector", 140, "w"),
-            ("price", "Price (LKR)", 95, "e"),
-            ("day_chg", "Day Chg %", 90, "e"),
-            ("grade", "Confluence", 95, "center"),
-            ("trend", "Trend", 120, "w"),
-            ("alert_high", "Alert High (≥)", 105, "e"),
-            ("alert_low", "Alert Low (≤)", 105, "e"),
-            ("alert_status", "Alert Status", 140, "w"),
-            ("notes", "Notes & Strategy", 200, "w"),
+            ("symbol", "Symbol", 100, "w"),
+            ("industry", "Industry / Sector", 130, "w"),
+            ("price", "Price (LKR)", 85, "e"),
+            ("day_chg", "Day Chg %", 85, "e"),
+            ("grade", "Confluence", 85, "center"),
+            ("trend", "Trend", 100, "w"),
+            ("alert_high", "Alert High (≥)", 95, "e"),
+            ("alert_low", "Alert Low (≤)", 95, "e"),
+            ("freq", "Frequency", 80, "center"),
+            ("expiry", "Expiry (d)", 75, "center"),
+            ("alert_status", "Alert Status", 130, "w"),
+            ("notes", "Notes & Strategy", 180, "w"),
         ]
         col_ids = [c[0] for c in col_defs]
         self.tree = SortableTreeview(table_frame, columns=col_ids, height=18)
@@ -225,6 +235,8 @@ class WatchlistTab(ttk.Frame):
             a_high = item.get("alert_high", 0.0)
             a_low = item.get("alert_low", 0.0)
             status = item.get("alert_status", "— Normal")
+            afreq = item.get("alert_frequency", "ALWAYS")
+            exp_days = item.get("expiry_days", 30)
             notes = item.get("notes", "")
 
             # Tag evaluation
@@ -249,6 +261,8 @@ class WatchlistTab(ttk.Frame):
                 trend,
                 f"{a_high:.2f}" if a_high > 0 else "—",
                 f"{a_low:.2f}" if a_low > 0 else "—",
+                afreq,
+                f"{exp_days}d" if exp_days > 0 else "Unlimited",
                 status,
                 notes,
             )
@@ -292,15 +306,21 @@ class WatchlistTab(ttk.Frame):
         except ValueError:
             al = 0.0
 
+        afreq = self.freq_var.get().strip().upper() or "ALWAYS"
+        try:
+            exp_d = int(self.expiry_var.get().strip()) if self.expiry_var.get().strip() else 30
+        except ValueError:
+            exp_d = 30
+
         notes = self.notes_var.get().strip()
 
         try:
-            self.app.engine.add_to_watchlist(lname, sym, alert_high=ah, alert_low=al, notes=notes)
+            self.app.engine.add_to_watchlist(lname, sym, alert_high=ah, alert_low=al, notes=notes, alert_frequency=afreq, expiry_days=exp_d)
             self.sym_var.set("")
             self.alert_high_var.set("")
             self.alert_low_var.set("")
             self.notes_var.set("")
-            self.app.set_status(f"Added {sym} to {lname}")
+            self.app.set_status(f"Added {sym} to {lname} (Freq: {afreq}, Expiry: {exp_d}d)")
             self.load_data()
         except Exception as e:
             messagebox.showerror("Error", f"Failed to add to watchlist: {e}", parent=self)
