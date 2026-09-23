@@ -448,6 +448,10 @@ class DataEngine:
         if df.empty or len(df) < 3:
             return {"pattern": "—", "bias": "Neutral"}
 
+        if "open" not in df.columns:
+            df = df.copy()
+            df["open"] = df["close"].shift(1).fillna(df["close"])
+
         last = df.iloc[-1]
         prev = df.iloc[-2]
         prev2 = df.iloc[-3]

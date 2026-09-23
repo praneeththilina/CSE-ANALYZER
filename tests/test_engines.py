@@ -260,6 +260,66 @@ class TestCoreEngines(unittest.TestCase):
         self.assertFalse(bars.empty)
         self.assertIn("close", bars.columns)
 
+    def test_compute_confluence(self):
+        engine = DataEngine(db_path=":memory:")
+
+        # 1. Test empty DataFrame
+        empty_df = pd.DataFrame()
+        res_empty = engine.compute_confluence(empty_df)
+        self.assertEqual(res_empty["score"], 50)
+        self.assertEqual(res_empty["grade"], "B")
+        self.assertEqual(res_empty["stars"], "★★★")
+        self.assertEqual(res_empty["fibonacci"], {})
+
+        # 2. Test short DataFrame (< 20 rows)
+        dates_short = pd.date_range("2023-01-01", periods=15, freq="D")
+        short_df = pd.DataFrame({
+            "close": np.linspace(100, 110, 15),
+            "high": np.linspace(102, 112, 15),
+            "low": np.linspace(98, 108, 15),
+            "volume": [1000] * 15,
+        }, index=dates_short)
+        res_short = engine.compute_confluence(short_df)
+        self.assertEqual(res_short["score"], 50)
+        self.assertEqual(res_short["grade"], "B")
+
+        # 3. Test standard DataFrame (>= 20 rows)
+        res_std = engine.compute_confluence(self.df)
+        expected_keys = [
+            "score", "grade", "stars", "trend_status", "trend_text", "divergence",
+            "weekly_trend", "pattern", "pattern_bias", "dist_52w_high", "dist_52w_high_num",
+            "near_breakout", "high_52w", "low_52w", "vol_ratio", "vol_ratio_str", "atr",
+            "ema50", "ema200", "support1", "support2", "resistance1", "resistance2",
+            "suggested_stop", "trailing_stop", "target1", "target2", "fibonacci"
+        ]
+        for key in expected_keys:
+            self.assertIn(key, res_std)
+        self.assertGreaterEqual(res_std["score"], 10)
+        self.assertLessEqual(res_std["score"], 100)
+        self.assertIn(res_std["grade"], ["A+", "A", "B", "C"])
+
+        # 4. Test strong bullish setup DataFrame
+        # Generate 100 periods of strong uptrend with volume surge at end
+        dates_bull = pd.date_range("2023-01-01", periods=100, freq="D")
+        closes_bull = np.linspace(50.0, 200.0, 100)
+        highs_bull = closes_bull + 2.0
+        lows_bull = closes_bull - 2.0
+        vols_bull = [1000] * 99 + [5000]  # Huge volume surge on last day
+        bull_df = pd.DataFrame({
+            "close": closes_bull,
+            "high": highs_bull,
+            "low": lows_bull,
+            "volume": vols_bull,
+        }, index=dates_bull)
+
+        res_bull = engine.compute_confluence(bull_df)
+        self.assertGreaterEqual(res_bull["score"], 70)
+        self.assertIn(res_bull["grade"], ["A+", "A"])
+        c_last = bull_df["close"].iloc[-1]
+        self.assertLess(res_bull["suggested_stop"], c_last)
+        self.assertGreater(res_bull["target1"], c_last)
+        self.assertGreater(res_bull["target2"], res_bull["target1"])
+
 
 if __name__ == "__main__":
     unittest.main()
