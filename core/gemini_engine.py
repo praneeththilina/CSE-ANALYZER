@@ -5,7 +5,7 @@ threads.  Re-uses the parent project's gemini_analyzer.py module.
 """
 from __future__ import annotations
 
-from typing import Dict, Any, Tuple
+from typing import Dict, Any
 
 import pandas as pd
 
