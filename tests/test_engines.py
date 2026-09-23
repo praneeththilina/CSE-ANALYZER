@@ -110,6 +110,22 @@ class TestCoreEngines(unittest.TestCase):
         self.assertIn("f_score", profile["piotroski"])
         self.assertIn("z_score", profile["altman_z"])
 
+    def test_calculate_graham_number(self):
+        # Happy path: valid positive EPS and BVPS
+        res = FundamentalEngine.calculate_graham_number(10.0, 50.0)
+        # sqrt(22.5 * 10 * 50) = sqrt(11250) = 106.066... -> 106.07
+        self.assertEqual(res, 106.07)
+
+        # Zero inputs
+        self.assertIsNone(FundamentalEngine.calculate_graham_number(0.0, 50.0))
+        self.assertIsNone(FundamentalEngine.calculate_graham_number(10.0, 0.0))
+        self.assertIsNone(FundamentalEngine.calculate_graham_number(0.0, 0.0))
+
+        # Negative inputs
+        self.assertIsNone(FundamentalEngine.calculate_graham_number(-5.0, 50.0))
+        self.assertIsNone(FundamentalEngine.calculate_graham_number(10.0, -10.0))
+        self.assertIsNone(FundamentalEngine.calculate_graham_number(-5.0, -5.0))
+
     def test_backtest_engine(self):
         res = BacktestEngine.run_spot_backtest(self.df, starting_capital=1_000_000.0, strategy_mode="QQE / Momentum")
         self.assertIn("return_pct", res)
