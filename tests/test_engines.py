@@ -260,6 +260,44 @@ class TestCoreEngines(unittest.TestCase):
         self.assertFalse(bars.empty)
         self.assertIn("close", bars.columns)
 
+    def test_get_bars_bulk_and_scan_equity_signals(self):
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+            db_path = tmp.name
+
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE symbols (symbol TEXT PRIMARY KEY, industry TEXT, enabled INTEGER)")
+        conn.execute("CREATE TABLE bars (symbol TEXT, date TEXT, close REAL, high REAL, low REAL, volume REAL)")
+        conn.execute("INSERT INTO symbols VALUES ('SYM1.N0000', 'Banking', 1)")
+        conn.execute("INSERT INTO symbols VALUES ('SYM2.N0000', 'Tech', 1)")
+
+        for _, row in self.df.iterrows():
+            d_str = str(row["trade_date"])[:10]
+            conn.execute(
+                "INSERT INTO bars VALUES ('SYM1.N0000', ?, ?, ?, ?, ?)",
+                (d_str, row["close"], row["high"], row["low"], row["volume"])
+            )
+            conn.execute(
+                "INSERT INTO bars VALUES ('SYM2.N0000', ?, ?, ?, ?, ?)",
+                (d_str, row["close"] * 1.5, row["high"] * 1.5, row["low"] * 1.5, row["volume"] * 2)
+            )
+        conn.commit()
+        conn.close()
+
+        engine = DataEngine(db_path=db_path)
+
+        # Test empty input
+        self.assertEqual(engine.get_bars_bulk([]), {})
+
+        # Test bulk retrieval for all symbols
+        bulk = engine.get_bars_bulk(["SYM1.N0000", "SYM2.N0000"])
+        self.assertEqual(set(bulk.keys()), {"SYM1.N0000", "SYM2.N0000"})
+        pd.testing.assert_frame_equal(engine.get_bars("SYM1.N0000"), bulk["SYM1.N0000"])
+        pd.testing.assert_frame_equal(engine.get_bars("SYM2.N0000"), bulk["SYM2.N0000"])
+
+        # Test scan_equity_signals returns results for populated enabled symbols
+        signals = engine.scan_equity_signals()
+        self.assertIsInstance(signals, list)
+
 
 if __name__ == "__main__":
     unittest.main()

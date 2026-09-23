@@ -113,6 +113,43 @@ class DataEngine:
         finally:
             con.close()
 
+    def get_bars_bulk(self, symbols: Optional[List[str]] = None) -> Dict[str, pd.DataFrame]:
+        """Fetch price bars for multiple symbols in a single query to avoid N+1 overhead."""
+        con = self.connect()
+        try:
+            if symbols is not None:
+                if not symbols:
+                    return {}
+                placeholders = ",".join("?" for _ in symbols)
+                sql = (
+                    f"SELECT symbol, date, close, high, low, volume FROM bars "
+                    f"WHERE symbol IN ({placeholders}) ORDER BY symbol, date"
+                )
+                rows = con.execute(sql, tuple(symbols)).fetchall()
+            else:
+                sql = "SELECT symbol, date, close, high, low, volume FROM bars ORDER BY symbol, date"
+                rows = con.execute(sql).fetchall()
+
+            bars_by_symbol: Dict[str, list] = {}
+            for r in rows:
+                bars_by_symbol.setdefault(r[0], []).append(r[1:])
+
+            result: Dict[str, pd.DataFrame] = {}
+            for sym, sym_rows in bars_by_symbol.items():
+                df = pd.DataFrame(sym_rows, columns=["date", "close", "high", "low", "volume"])
+                df["date"] = pd.to_datetime(df["date"])
+                df = df.set_index("date").sort_index()
+                for c in ["close", "high", "low", "volume"]:
+                    df[c] = pd.to_numeric(df[c], errors="coerce")
+                df["volume"] = df["volume"].fillna(0)
+                df["open"] = df["close"].shift(1)
+                if not df.empty:
+                    df.iloc[0, df.columns.get_loc("open")] = df.iloc[0]["close"]
+                result[sym] = df.dropna(subset=["close"])
+            return result
+        finally:
+            con.close()
+
     def get_latest_prices(self) -> Dict[str, float]:
         con = self.connect()
         try:
@@ -939,9 +976,12 @@ class DataEngine:
             ind_map = {sym: ind for sym, ind in
                        con.execute("SELECT symbol, industry FROM symbols").fetchall()}
             results = []
+            bars_dict = self.get_bars_bulk(enabled)
+            empty_df = pd.DataFrame(columns=["date", "close", "high", "low", "volume"])
+
             for sym in enabled:
                 try:
-                    bars_df = self.get_bars(sym)
+                    bars_df = bars_dict.get(sym, empty_df)
                     if bars_df.empty or len(bars_df) < 25:
                         continue
 
