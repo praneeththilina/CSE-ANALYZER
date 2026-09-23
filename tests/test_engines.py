@@ -228,11 +228,88 @@ class TestCoreEngines(unittest.TestCase):
         rs = MarketContextEngine.compute_benchmark_relative_strength(self.df)
         self.assertIn("rs_momentum_20d_pct", rs)
 
-        liq = MarketContextEngine.compute_liquidity_and_days_to_exit(self.df)
-        self.assertIn("liquidity_tier", liq)
-
         cb = MarketContextEngine.check_circuit_breakers_and_bands(120.0, 115.0)
         self.assertIn("upper_circuit_limit", cb)
+
+    def test_compute_liquidity_and_days_to_exit(self):
+        # 1. Edge Case: Empty or short DataFrame (< 5 rows)
+        empty_df = pd.DataFrame(columns=["close", "volume"])
+        res_empty = MarketContextEngine.compute_liquidity_and_days_to_exit(empty_df)
+        self.assertEqual(res_empty["liquidity_tier"], "Tier 3 (Illiquid)")
+        self.assertEqual(res_empty["avg_daily_volume"], 0)
+        self.assertEqual(res_empty["avg_daily_turnover_lkr"], 0.0)
+        self.assertEqual(res_empty["days_to_exit"], 99.0)
+        self.assertEqual(res_empty["warning"], "No historical volume found.")
+
+        short_df = pd.DataFrame({
+            "close": [100.0, 101.0, 102.0],
+            "volume": [1000, 1000, 1000]
+        })
+        res_short = MarketContextEngine.compute_liquidity_and_days_to_exit(short_df)
+        self.assertEqual(res_short["days_to_exit"], 99.0)
+
+        # 2. Tier 1 High Liquidity (Turnover >= 10M LKR)
+        dates_10 = pd.date_range("2023-01-01", periods=10)
+        tier1_df = pd.DataFrame({
+            "close": [100.0] * 10,
+            "volume": [200000] * 10
+        }, index=dates_10)
+        res_t1 = MarketContextEngine.compute_liquidity_and_days_to_exit(tier1_df, position_qty=10000)
+        self.assertEqual(res_t1["liquidity_tier"], "Tier 1 (High Liquidity)")
+        self.assertEqual(res_t1["badge_color"], "#10B981")
+        self.assertEqual(res_t1["avg_daily_volume"], 200000)
+        self.assertEqual(res_t1["avg_daily_turnover_lkr"], 20_000_000.0)
+        # Safe absorption = max(100, 200000 * 0.10) = 20000 -> days to exit 10000 / 20000 = 0.5
+        self.assertEqual(res_t1["days_to_exit"], 0.5)
+        self.assertIsNone(res_t1["warning"])
+
+        # 3. Tier 2 Moderate Liquidity (1.5M <= Turnover < 10M LKR)
+        tier2_df = pd.DataFrame({
+            "close": [100.0] * 10,
+            "volume": [50000] * 10
+        }, index=dates_10)
+        res_t2 = MarketContextEngine.compute_liquidity_and_days_to_exit(tier2_df, position_qty=5000)
+        self.assertEqual(res_t2["liquidity_tier"], "Tier 2 (Moderate Liquidity)")
+        self.assertEqual(res_t2["badge_color"], "#3B82F6")
+        self.assertEqual(res_t2["avg_daily_turnover_lkr"], 5_000_000.0)
+
+        # 4. Tier 3 Illiquid (Turnover < 1.5M LKR) & Low turnover warning
+        tier3_df = pd.DataFrame({
+            "close": [50.0] * 10,
+            "volume": [10000] * 10
+        }, index=dates_10)
+        res_t3 = MarketContextEngine.compute_liquidity_and_days_to_exit(tier3_df, position_qty=1000)
+        self.assertEqual(res_t3["liquidity_tier"], "Tier 3 (Illiquid / Speculative)")
+        self.assertEqual(res_t3["badge_color"], "#EF4444")
+        self.assertEqual(res_t3["avg_daily_turnover_lkr"], 500_000.0)
+        # Absorption = 1000, days = 1000 / 1000 = 1.0 <= 3.0, so warning is low turnover warning
+        self.assertIn("Low turnover stock", res_t3["warning"])
+
+        # 5. Position defined via position_lkr
+        res_lkr = MarketContextEngine.compute_liquidity_and_days_to_exit(tier1_df, position_lkr=500000.0)
+        # last_price = 100.0, so position_qty = int(500000 / 100) = 5000
+        self.assertEqual(res_lkr["position_qty"], 5000)
+        self.assertEqual(res_lkr["position_lkr"], 500000.0)
+
+        # 6. Days to exit warning (> 3.0 days)
+        # avg_vol = 1000, 10% participation = 100 safe daily absorption
+        # position_qty = 5000 -> days_to_exit = 50.0
+        slow_df = pd.DataFrame({
+            "close": [100.0] * 10,
+            "volume": [1000] * 10
+        }, index=dates_10)
+        res_warn = MarketContextEngine.compute_liquidity_and_days_to_exit(slow_df, position_qty=5000)
+        self.assertEqual(res_warn["days_to_exit"], 50.0)
+        self.assertIn("Liquidity Warning", res_warn["warning"])
+
+        # 7. Custom max_market_participation_rate and safe daily absorption floor logic
+        # avg_vol = 100 -> avg_vol * 0.10 = 10 < 100.0 (floor applied) -> safe absorption = 100.0
+        floor_df = pd.DataFrame({
+            "close": [100.0] * 10,
+            "volume": [100] * 10
+        }, index=dates_10)
+        res_floor = MarketContextEngine.compute_liquidity_and_days_to_exit(floor_df, position_qty=200, max_market_participation_rate=0.10)
+        self.assertEqual(res_floor["days_to_exit"], 2.0) # 200 / 100.0 = 2.0
 
     def test_data_engine(self):
         with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
