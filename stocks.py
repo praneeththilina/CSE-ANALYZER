@@ -544,6 +544,101 @@ def compute_qqe_from_closes(
     return out
 
 # --------------- Runner ---------------
+def _manage_symbol_flags(
+    con: sqlite3.Connection,
+    enable_all: bool,
+    disable_all: bool,
+    enable_file: str | None,
+    disable_file: str | None,
+) -> None:
+    """Update symbol enable/disable flags in the DB based on options."""
+    if enable_all:
+        set_enabled_all(con, 1)
+    if disable_all:
+        set_enabled_all(con, 0)
+    if enable_file:
+        set_enabled_from_file(con, enable_file, 1)
+    if disable_file:
+        set_enabled_from_file(con, disable_file, 0)
+
+
+def _update_symbol_bars(
+    con: sqlite3.Connection,
+    s: requests.Session,
+    symbols: List[str],
+    symbol_only: str | None,
+    period: int,
+) -> None:
+    """Fetch and insert bars incrementally for specified symbols."""
+    target_symbols = [symbol_only] if symbol_only else symbols
+    for sym in target_symbols:
+        try:
+            inserted, total = incremental_upsert_bars(con, s, sym, period=period)
+            last = get_symbol_last_date(con, sym)
+            print(f"[bars] {sym}: +{inserted} new / {total} fetched (last={last})")
+        except Exception as e:
+            print(f"[bars error] {sym}: {e}")
+
+
+def _scan_qqe_signals(
+    con: sqlite3.Connection,
+    enabled_symbols: List[str],
+    today_str: str,
+    rsi_period: int,
+    sf: int,
+    qqe_factor: float,
+    threshold: int,
+    min_bars: int,
+) -> Tuple[List[str], List[str]]:
+    """Compute QQE and save signals for enabled symbols, returning (long_hits, short_hits)."""
+    long_hits, short_hits = [], []
+    for sym in enabled_symbols:
+        try:
+            closes = get_symbol_closes(con, sym)
+            if len(closes) < min_bars:
+                continue
+            qqe = compute_qqe_from_closes(
+                closes,
+                rsi_period=rsi_period,
+                sf=sf,
+                qqe_factor=qqe_factor,
+                threshold=threshold,
+            )
+            df = pd.concat([closes.rename("close"), qqe], axis=1).dropna(subset=["close"])
+            if df.empty:
+                continue
+            last_date = df.index[-1].strftime("%Y-%m-%d")
+            last_sig = int(df["signal"].iloc[-1])
+            upsert_signal(con, sym, last_date, last_sig)
+            if last_date == today_str:
+                if last_sig == 1:
+                    long_hits.append(sym)
+                elif last_sig == -1:
+                    short_hits.append(sym)
+        except Exception as e:
+            print(f"[qqe error] {sym}: {e}")
+    return long_hits, short_hits
+
+
+def _send_signals_summary(
+    today_str: str,
+    long_hits: List[str],
+    short_hits: List[str],
+    dry_run: bool,
+) -> None:
+    """Send summary of QQE signals via Telegram if any exist and not in dry_run mode."""
+    if not dry_run and (long_hits or short_hits):
+        lines = [f"*CSE QQE Daily Signals ({today_str})*"]
+        if long_hits:
+            lines.append("🟢 Long: " + ", ".join(long_hits[:200]))
+        if short_hits:
+            lines.append("🔴 Short: " + ", ".join(short_hits[:200]))
+        send_telegram_message("\n".join(lines))
+        print("Telegram summary sent.")
+    else:
+        print("No new signals for today or Telegram disabled.")
+
+
 def run(
     db_path: str,
     timeout: int,
@@ -571,14 +666,7 @@ def run(
     send_telegram_message(f"✅ CSE QQE app started @ {ts}", force=True)
 
     # Symbol table maintenance
-    if enable_all:
-        set_enabled_all(con, 1)
-    if disable_all:
-        set_enabled_all(con, 0)
-    if enable_file:
-        set_enabled_from_file(con, enable_file, 1)
-    if disable_file:
-        set_enabled_from_file(con, disable_file, 0)
+    _manage_symbol_flags(con, enable_all, disable_all, enable_file, disable_file)
 
     if update_symbols_flag:
         refresh_symbols(con, s, allow_scrape=allow_scrape)
@@ -592,14 +680,7 @@ def run(
         return
 
     print(f"Symbols in DB: {len(symbols)} total.")
-    # Fetch/insert bars incrementally for ALL symbols (regardless of enabled)
-    for sym in ([symbol_only] if symbol_only else symbols):
-        try:
-            inserted, total = incremental_upsert_bars(con, s, sym, period=period)
-            last = get_symbol_last_date(con, sym)
-            print(f"[bars] {sym}: +{inserted} new / {total} fetched (last={last})")
-        except Exception as e:
-            print(f"[bars error] {sym}: {e}")
+    _update_symbol_bars(con, s, symbols, symbol_only, period)
 
     # Now compute QQE only for enabled symbols
     enabled_symbols = fetch_symbols_from_db(con, only_enabled=True)
@@ -611,44 +692,19 @@ def run(
     else:
         today_colombo = datetime.utcnow().date().strftime("%Y-%m-%d")
 
-    long_hits, short_hits = [], []
-    for sym in enabled_symbols:
-        try:
-            closes = get_symbol_closes(con, sym)
-            if len(closes) < min_bars:
-                continue
-            qqe = compute_qqe_from_closes(
-                closes,
-                rsi_period=rsi_period,
-                sf=sf,
-                qqe_factor=qqe_factor,
-                threshold=threshold,
-            )
-            df = pd.concat([closes.rename("close"), qqe], axis=1).dropna(subset=["close"])
-            if df.empty:
-                continue
-            last_date = df.index[-1].strftime("%Y-%m-%d")
-            last_sig = int(df["signal"].iloc[-1])
-            upsert_signal(con, sym, last_date, last_sig)
-            if last_date == today_colombo:
-                if last_sig == 1:
-                    long_hits.append(sym)
-                elif last_sig == -1:
-                    short_hits.append(sym)
-        except Exception as e:
-            print(f"[qqe error] {sym}: {e}")
+    long_hits, short_hits = _scan_qqe_signals(
+        con,
+        enabled_symbols,
+        today_colombo,
+        rsi_period=rsi_period,
+        sf=sf,
+        qqe_factor=qqe_factor,
+        threshold=threshold,
+        min_bars=min_bars,
+    )
 
     # Telegram signals summary
-    if not dry_run and (long_hits or short_hits):
-        lines = [f"*CSE QQE Daily Signals ({today_colombo})*"]
-        if long_hits:
-            lines.append("🟢 Long: " + ", ".join(long_hits[:200]))
-        if short_hits:
-            lines.append("🔴 Short: " + ", ".join(short_hits[:200]))
-        send_telegram_message("\n".join(lines))
-        print("Telegram summary sent.")
-    else:
-        print("No new signals for today or Telegram disabled.")
+    _send_signals_summary(today_colombo, long_hits, short_hits, dry_run)
 
 # ---------------- CLI ----------------
 def main():
