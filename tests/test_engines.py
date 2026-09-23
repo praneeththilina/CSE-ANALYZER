@@ -110,6 +110,41 @@ class TestCoreEngines(unittest.TestCase):
         self.assertIn("f_score", profile["piotroski"])
         self.assertIn("z_score", profile["altman_z"])
 
+    def test_calculate_dcf_value(self):
+        # 1. Standard calculation with default parameters
+        dcf_default = FundamentalEngine.calculate_dcf_value(fcf_per_share=10.0)
+        self.assertEqual(dcf_default, 125.88)
+
+        # 2. Custom parameters
+        dcf_custom = FundamentalEngine.calculate_dcf_value(
+            fcf_per_share=15.0,
+            growth_rate=0.10,
+            terminal_growth=0.02,
+            discount_rate=0.12,
+            years=10
+        )
+        self.assertIsNotNone(dcf_custom)
+        self.assertIsInstance(dcf_custom, float)
+        self.assertGreater(dcf_custom, 0)
+
+        # 3. Invalid / Edge Cases returning None
+        # Zero FCF
+        self.assertIsNone(FundamentalEngine.calculate_dcf_value(fcf_per_share=0.0))
+        # Negative FCF
+        self.assertIsNone(FundamentalEngine.calculate_dcf_value(fcf_per_share=-5.0))
+        # Discount rate equal to terminal growth rate
+        self.assertIsNone(
+            FundamentalEngine.calculate_dcf_value(
+                fcf_per_share=10.0, discount_rate=0.03, terminal_growth=0.03
+            )
+        )
+        # Discount rate less than terminal growth rate
+        self.assertIsNone(
+            FundamentalEngine.calculate_dcf_value(
+                fcf_per_share=10.0, discount_rate=0.02, terminal_growth=0.03
+            )
+        )
+
     def test_backtest_engine(self):
         res = BacktestEngine.run_spot_backtest(self.df, starting_capital=1_000_000.0, strategy_mode="QQE / Momentum")
         self.assertIn("return_pct", res)
