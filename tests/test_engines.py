@@ -260,6 +260,76 @@ class TestCoreEngines(unittest.TestCase):
         self.assertFalse(bars.empty)
         self.assertIn("close", bars.columns)
 
+    def test_compute_chart_signals_empty_and_short(self):
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+            db_path = tmp.name
+        engine = DataEngine(db_path=db_path)
+        # Empty DataFrame
+        empty_df = pd.DataFrame(columns=["close", "high", "low", "volume", "open"])
+        res_empty = engine.compute_chart_signals(empty_df)
+        self.assertIn("buy_signals", res_empty)
+        self.assertIn("exit_signals", res_empty)
+        self.assertTrue(res_empty["buy_signals"].empty)
+        self.assertTrue(res_empty["exit_signals"].empty)
+
+        # DataFrame with fewer than 25 bars
+        short_dates = pd.date_range("2023-01-01", periods=10, freq="D")
+        short_df = pd.DataFrame({
+            "close": [100.0] * 10,
+            "high": [105.0] * 10,
+            "low": [95.0] * 10,
+            "volume": [1000] * 10,
+            "open": [100.0] * 10
+        }, index=short_dates)
+        res_short = engine.compute_chart_signals(short_df)
+        self.assertEqual(len(res_short["buy_signals"]), 10)
+        self.assertEqual(len(res_short["exit_signals"]), 10)
+        self.assertTrue(res_short["buy_signals"].isna().all())
+        self.assertTrue(res_short["exit_signals"].isna().all())
+
+    def test_compute_chart_signals_missing_open_col(self):
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+            db_path = tmp.name
+        engine = DataEngine(db_path=db_path)
+        dates = pd.date_range("2023-01-01", periods=30, freq="D")
+        df_no_open = pd.DataFrame({
+            "close": [100.0] * 30,
+            "high": [105.0] * 30,
+            "low": [95.0] * 30,
+            "volume": [1000] * 30
+        }, index=dates)
+        res = engine.compute_chart_signals(df_no_open)
+        self.assertIn("buy_signals", res)
+        self.assertIn("exit_signals", res)
+        self.assertEqual(len(res["buy_signals"]), 30)
+
+    def test_compute_chart_signals_buy_and_exit(self):
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+            db_path = tmp.name
+        engine = DataEngine(db_path=db_path)
+        dates = pd.date_range("2023-01-01", periods=60, freq="D")
+        # Build 60 bars of flat data, then a breakout at bar 30, then drop at bar 40
+        closes = [100.0] * 30 + [120.0] * 10 + [80.0] * 20
+        highs = [102.0] * 30 + [122.0] * 10 + [82.0] * 20
+        lows = [98.0] * 30 + [118.0] * 10 + [75.0] * 20
+        volumes = [1000] * 30 + [5000] * 10 + [1000] * 20
+
+        df = pd.DataFrame({
+            "close": closes,
+            "high": highs,
+            "low": lows,
+            "volume": volumes,
+            "open": closes
+        }, index=dates)
+
+        res = engine.compute_chart_signals(df)
+        self.assertIn("buy_signals", res)
+        self.assertIn("exit_signals", res)
+        # Check that buy signal was produced at breakout bar
+        self.assertFalse(res["buy_signals"].isna().all())
+        # Check that exit signal was produced when price dropped below stop
+        self.assertFalse(res["exit_signals"].isna().all())
+
 
 if __name__ == "__main__":
     unittest.main()
