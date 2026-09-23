@@ -103,8 +103,8 @@ class GhostButton(tk.Button):
             **kwargs
         )
 
-        self.bind("<Enter>", self._on_enter)
-        self.bind("<Leave>", self._on_leave)
+        self.bind("<Enter>", self._on_enter, add="+")
+        self.bind("<Leave>", self._on_leave, add="+")
         ThemeManager.register_listener(self._on_theme_change)
 
     def _on_enter(self, _):
@@ -160,8 +160,12 @@ class IconButton(tk.Button):
             **kwargs
         )
 
-        self.bind("<Enter>", self._on_enter)
-        self.bind("<Leave>", self._on_leave)
+        self.bind("<Enter>", self._on_enter, add="+")
+        self.bind("<Leave>", self._on_leave, add="+")
+
+        if self._tooltip:
+            from ui.components.tooltip import ToolTip
+            self._tooltip_obj = ToolTip(self, self._tooltip)
         ThemeManager.register_listener(self._on_theme_change)
 
     def _on_enter(self, _):
