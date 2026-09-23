@@ -227,6 +227,98 @@ class TestCoreEngines(unittest.TestCase):
         self.assertIn("shares_to_buy", pos_size)
         self.assertGreater(pos_size["shares_to_buy"], 0)
 
+    def test_calculate_position_size_comprehensive(self):
+        # 1. Invalid inputs
+        # Entry price <= 0
+        res = RiskScorecardEngine.calculate_position_size(
+            account_capital=1_000_000.0, entry_price=0.0, stop_loss_price=90.0
+        )
+        self.assertEqual(res["shares_to_buy"], 0)
+        self.assertEqual(res["warning"], "Invalid trade levels: Stop loss must be below entry price.")
+
+        # Stop loss >= entry price
+        res = RiskScorecardEngine.calculate_position_size(
+            account_capital=1_000_000.0, entry_price=100.0, stop_loss_price=105.0
+        )
+        self.assertEqual(res["shares_to_buy"], 0)
+        self.assertEqual(res["warning"], "Invalid trade levels: Stop loss must be below entry price.")
+
+        # Account capital <= 0
+        res = RiskScorecardEngine.calculate_position_size(
+            account_capital=-1000.0, entry_price=100.0, stop_loss_price=90.0
+        )
+        self.assertEqual(res["shares_to_buy"], 0)
+        self.assertEqual(res["warning"], "Invalid trade levels: Stop loss must be below entry price.")
+
+        # 2. Normal position sizing & CSE lot size (10 shares) rounding
+        # Capital 1,000,000; Risk 1.5% = 15,000 LKR
+        # Entry = 100, Stop = 90 -> Stop distance = 10
+        # raw_qty = 15,000 / 10 = 1500 shares
+        # allocation_cap = 25% of 1M = 250,000 / 100 = 2500 shares
+        # liquidity_cap = 10% of 50,000 = 5000 shares
+        # Final qty = min(1500, 2500, 5000) = 1500 shares
+        res = RiskScorecardEngine.calculate_position_size(
+            account_capital=1_000_000.0,
+            entry_price=100.0,
+            stop_loss_price=90.0,
+            risk_pct=1.5,
+            max_capital_allocation_pct=25.0,
+            avg_daily_volume=50000
+        )
+        self.assertEqual(res["shares_to_buy"], 1500)
+        self.assertEqual(res["position_value_lkr"], 150000.0)
+        self.assertEqual(res["risk_amount_lkr"], 15000.0)
+        self.assertEqual(res["actual_risk_pct"], 1.5)
+        self.assertEqual(res["portfolio_weight_pct"], 15.0)
+        self.assertEqual(res["risk_reward_1_5_target"], 115.0)  # 100 + 1.5*10
+        self.assertEqual(res["risk_reward_2_5_target"], 125.0)  # 100 + 2.5*10
+        self.assertIsNone(res["warning"])
+
+        # Lot size rounding check: e.g. raw_qty = 1497 -> rounds to 1490
+        res_round = RiskScorecardEngine.calculate_position_size(
+            account_capital=998000.0,
+            entry_price=100.0,
+            stop_loss_price=90.0,
+            risk_pct=1.5
+        )
+        # 998,000 * 0.015 = 14,970 LKR risk; stop dist = 10 -> raw_qty = 1497 -> rounded = 1490
+        self.assertEqual(res_round["shares_to_buy"], 1490)
+
+        # 3. Capital allocation cap restriction
+        # Small risk % or huge stop distance can allow high raw_qty, but allocation cap stops it
+        # Capital = 1,000,000; Entry = 10.0, Stop = 9.9 (stop distance = 0.1)
+        # Risk LKR = 15,000 -> raw_qty = 150,000
+        # Max allocation = 25% = 250,000 / 10 = 25,000 shares
+        # Liquidity cap = 10% of 1,000,000 = 100,000
+        # Final qty = min(150,000, 25,000, 100,000) = 25,000
+        res_alloc = RiskScorecardEngine.calculate_position_size(
+            account_capital=1_000_000.0,
+            entry_price=10.0,
+            stop_loss_price=9.9,
+            risk_pct=1.5,
+            max_capital_allocation_pct=25.0,
+            avg_daily_volume=1_000_000
+        )
+        self.assertEqual(res_alloc["shares_to_buy"], 25000)
+        self.assertIn("Position size restricted by 25.0% portfolio concentration limit.", res_alloc["warning"])
+
+        # 4. Liquidity absorption cap restriction
+        # Capital = 10,000,000; Entry = 100, Stop = 90
+        # Risk LKR = 150,000 -> raw_qty = 15,000 shares
+        # Allocation cap = 25% = 2,500,000 / 100 = 25,000 shares
+        # Liquidity cap = 10% of 20,000 avg volume = 2,000 shares
+        # Final qty = min(15,000, 25,000, 2,000) = 2,000
+        res_liq = RiskScorecardEngine.calculate_position_size(
+            account_capital=10_000_000.0,
+            entry_price=100.0,
+            stop_loss_price=90.0,
+            risk_pct=1.5,
+            max_capital_allocation_pct=25.0,
+            avg_daily_volume=20000
+        )
+        self.assertEqual(res_liq["shares_to_buy"], 2000)
+        self.assertIn("Position size restricted to 2,000 shares to prevent adverse market impact", res_liq["warning"])
+
         risk_res = RiskScorecardEngine.evaluate_portfolio_risk(
             holdings=[{"symbol": "COMB.N0000", "current_price": 120.0, "qty": 1000, "pnl": 10000, "cost_basis": 110000}],
             portfolio_cash=50000.0,
