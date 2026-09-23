@@ -110,6 +110,82 @@ class TestCoreEngines(unittest.TestCase):
         self.assertIn("f_score", profile["piotroski"])
         self.assertIn("z_score", profile["altman_z"])
 
+    def test_compute_piotroski_f_score(self):
+        # 1. Perfect score (9/9)
+        perfect_data = {
+            "net_income": 1_000_000,
+            "operating_cash_flow": 1_500_000,  # > 0 and > net_income
+            "roa": 8.0,
+            "roa_prior": 5.0,                   # > 0 and > roa_prior
+            "debt_to_equity": 0.5,
+            "debt_to_equity_prior": 0.6,        # <= debt_to_equity_prior
+            "current_ratio": 1.8,
+            "current_ratio_prior": 1.5,         # >= current_ratio_prior
+            "shares_out": 100_000,
+            "shares_out_prior": 100_000,        # <= shares_out_prior
+            "gross_margin": 30.0,
+            "gross_margin_prior": 28.0,         # >= gross_margin_prior
+            "asset_turnover": 1.0,
+            "asset_turnover_prior": 0.9          # >= asset_turnover_prior
+        }
+        res_perfect = FundamentalEngine.compute_piotroski_f_score(perfect_data)
+        self.assertEqual(res_perfect["f_score"], 9)
+        self.assertEqual(res_perfect["max_score"], 9)
+        self.assertEqual(res_perfect["rating"], "Strong (Piotroski 7-9)")
+        self.assertEqual(res_perfect["color"], "#10B981")
+        self.assertEqual(len(res_perfect["breakdown"]), 9)
+        self.assertTrue(all("+1" in item for item in res_perfect["breakdown"]))
+
+        # 2. Zero score (0/9)
+        zero_data = {
+            "net_income": -100_000,
+            "operating_cash_flow": -200_000,    # <= 0 and <= net_income
+            "roa": -2.0,
+            "roa_prior": 1.0,                   # not (roa > roa_prev and roa > 0)
+            "debt_to_equity": 1.2,
+            "debt_to_equity_prior": 0.8,        # > debt_to_equity_prior
+            "current_ratio": 1.1,
+            "current_ratio_prior": 1.4,         # < current_ratio_prior
+            "shares_out": 120_000,
+            "shares_out_prior": 100_000,        # > shares_out_prior
+            "gross_margin": 15.0,
+            "gross_margin_prior": 20.0,         # < gross_margin_prior
+            "asset_turnover": 0.5,
+            "asset_turnover_prior": 0.7          # < asset_turnover_prior
+        }
+        res_zero = FundamentalEngine.compute_piotroski_f_score(zero_data)
+        self.assertEqual(res_zero["f_score"], 0)
+        self.assertEqual(res_zero["rating"], "Weak (Piotroski 0-3)")
+        self.assertEqual(res_zero["color"], "#EF4444")
+        self.assertTrue(all("(0)" in item for item in res_zero["breakdown"]))
+
+        # 3. Moderate score (4/9)
+        mod_data = {
+            "net_income": 500_000,              # +1
+            "operating_cash_flow": 600_000,     # +1 (CFO>0) & +1 (CFO>NI)
+            "roa": 3.0,
+            "roa_prior": 4.0,                   # 0
+            "debt_to_equity": 1.0,
+            "debt_to_equity_prior": 0.9,        # 0
+            "current_ratio": 1.2,
+            "current_ratio_prior": 1.5,         # 0
+            "shares_out": 100_000,
+            "shares_out_prior": 100_000,        # +1 (no dilution)
+            "gross_margin": 20.0,
+            "gross_margin_prior": 22.0,         # 0
+            "asset_turnover": 0.6,
+            "asset_turnover_prior": 0.7          # 0
+        }
+        res_mod = FundamentalEngine.compute_piotroski_f_score(mod_data)
+        self.assertEqual(res_mod["f_score"], 4)
+        self.assertEqual(res_mod["rating"], "Moderate (Piotroski 4-6)")
+        self.assertEqual(res_mod["color"], "#F59E0B")
+
+        # 4. Default / Empty dictionary input
+        res_default = FundamentalEngine.compute_piotroski_f_score({})
+        self.assertIn("f_score", res_default)
+        self.assertIsInstance(res_default["f_score"], int)
+
     def test_backtest_engine(self):
         res = BacktestEngine.run_spot_backtest(self.df, starting_capital=1_000_000.0, strategy_mode="QQE / Momentum")
         self.assertIn("return_pct", res)
