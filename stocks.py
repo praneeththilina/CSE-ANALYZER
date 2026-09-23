@@ -65,7 +65,17 @@ def api_order_book(s: requests.Session, symbol: str, token: str | None = None) -
     return post(s, "orderBook", data).json()
 
 def api_company_news(s: requests.Session, symbol: str, news_type: str = "BN", top: bool = False) -> dict:
-    # GET: /api/news/web?top=false&type=BN&security=XXX
+    """Fetch company news and announcements from CSE API.
+
+    Args:
+        s: Active requests.Session instance.
+        symbol: Security symbol (e.g., COMB.N0000).
+        news_type: Type filter for news (default 'BN').
+        top: Whether to fetch top news only (default False).
+
+    Returns:
+        JSON dict response containing news entries.
+    """
     url = f"{BASE}news/web?top={'true' if top else 'false'}&type={news_type}&security={symbol}"
     return get(s, url).json()
 
