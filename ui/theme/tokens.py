@@ -5,7 +5,7 @@ Controls all surface colors, state borders, typography, radii, and spacing.
 """
 from __future__ import annotations
 
-from typing import Dict, Any, Callable, List
+from typing import Dict, Callable, List
 
 # ── Color Palette Definitions ─────────────────────────────────────────────
 
