@@ -1510,16 +1510,27 @@ class DataEngine:
         try:
             con.execute("""
                 CREATE TABLE IF NOT EXISTS watchlists (
-                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                    list_name   TEXT NOT NULL,
-                    symbol      TEXT NOT NULL,
-                    alert_high  REAL DEFAULT 0,
-                    alert_low   REAL DEFAULT 0,
-                    notes       TEXT DEFAULT '',
-                    created_at  TEXT DEFAULT (datetime('now')),
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    list_name       TEXT NOT NULL,
+                    symbol          TEXT NOT NULL,
+                    alert_high      REAL DEFAULT 0,
+                    alert_low       REAL DEFAULT 0,
+                    notes           TEXT DEFAULT '',
+                    alert_frequency TEXT DEFAULT 'ALWAYS',
+                    expiry_days     INTEGER DEFAULT 30,
+                    last_triggered_at TEXT DEFAULT NULL,
+                    created_at      TEXT DEFAULT (datetime('now')),
                     UNIQUE(list_name, symbol)
                 );
             """)
+            # Schema migration check for existing databases
+            cols = [r[1] for r in con.execute("PRAGMA table_info(watchlists)").fetchall()]
+            if "alert_frequency" not in cols:
+                con.execute("ALTER TABLE watchlists ADD COLUMN alert_frequency TEXT DEFAULT 'ALWAYS'")
+            if "expiry_days" not in cols:
+                con.execute("ALTER TABLE watchlists ADD COLUMN expiry_days INTEGER DEFAULT 30")
+            if "last_triggered_at" not in cols:
+                con.execute("ALTER TABLE watchlists ADD COLUMN last_triggered_at TEXT DEFAULT NULL")
             con.execute("CREATE INDEX IF NOT EXISTS idx_watchlists_list ON watchlists(list_name);")
 
             # Check if default watchlists should be seeded
@@ -1573,7 +1584,7 @@ class DataEngine:
         con = self.connect()
         try:
             rows = con.execute(
-                "SELECT id, symbol, alert_high, alert_low, notes FROM watchlists "
+                "SELECT id, symbol, alert_high, alert_low, notes, alert_frequency, expiry_days, last_triggered_at, created_at FROM watchlists "
                 "WHERE list_name=? ORDER BY symbol", (list_name,)
             ).fetchall()
             if not rows:
@@ -1581,7 +1592,9 @@ class DataEngine:
 
             ind_map = {r[0]: r[1] for r in con.execute("SELECT symbol, COALESCE(industry, '') FROM symbols").fetchall()}
             items = []
-            for wid, sym, a_high, a_low, notes in rows:
+            for wid, sym, a_high, a_low, notes, afreq, exp_days, last_trig, created_at in rows:
+                afreq = afreq or "ALWAYS"
+                exp_days = int(exp_days if exp_days is not None else 30)
                 bars_df = self.get_bars(sym)
                 c_last = 0.0
                 day_chg_pct = 0.0
@@ -1598,8 +1611,20 @@ class DataEngine:
                 a_high_val = float(a_high or 0.0)
                 a_low_val = float(a_low or 0.0)
 
+                # Expiry evaluation
+                is_expired = False
+                if exp_days > 0 and created_at:
+                    try:
+                        c_date = datetime.strptime(created_at[:10], "%Y-%m-%d")
+                        if datetime.now() > c_date + timedelta(days=exp_days):
+                            is_expired = True
+                    except Exception:
+                        pass
+
                 alert_status = "— Normal"
-                if a_high_val > 0 and c_last >= a_high_val:
+                if is_expired:
+                    alert_status = f"⌛ Expired ({exp_days}d limit)"
+                elif a_high_val > 0 and c_last >= a_high_val:
                     alert_status = f"🔔 High Hit (>= {a_high_val:.2f})"
                 elif a_low_val > 0 and c_last <= a_low_val:
                     alert_status = f"⚠️ Low Hit (<= {a_low_val:.2f})"
@@ -1617,6 +1642,10 @@ class DataEngine:
                     "alert_high": a_high_val,
                     "alert_low": a_low_val,
                     "alert_status": alert_status,
+                    "alert_frequency": afreq,
+                    "expiry_days": exp_days,
+                    "last_triggered_at": last_trig or "Never",
+                    "is_expired": is_expired,
                     "notes": notes or "",
                 })
             return items
@@ -1629,17 +1658,20 @@ class DataEngine:
         symbol: str,
         alert_high: float = 0.0,
         alert_low: float = 0.0,
-        notes: str = ""
+        notes: str = "",
+        alert_frequency: str = "ALWAYS",
+        expiry_days: int = 30
     ):
         """Inserts or updates a symbol in the specified watchlist."""
         con = self.connect()
         try:
             con.execute(
-                "INSERT INTO watchlists (list_name, symbol, alert_high, alert_low, notes) "
-                "VALUES (?, ?, ?, ?, ?) "
+                "INSERT INTO watchlists (list_name, symbol, alert_high, alert_low, notes, alert_frequency, expiry_days, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now')) "
                 "ON CONFLICT(list_name, symbol) DO UPDATE SET "
-                "alert_high=excluded.alert_high, alert_low=excluded.alert_low, notes=excluded.notes",
-                (list_name.strip(), symbol.strip().upper(), float(alert_high), float(alert_low), notes.strip())
+                "alert_high=excluded.alert_high, alert_low=excluded.alert_low, notes=excluded.notes, "
+                "alert_frequency=excluded.alert_frequency, expiry_days=excluded.expiry_days",
+                (list_name.strip(), symbol.strip().upper(), float(alert_high), float(alert_low), notes.strip(), alert_frequency.strip().upper(), int(expiry_days))
             )
             con.commit()
         finally:
@@ -1665,11 +1697,12 @@ class DataEngine:
 
     def check_watchlist_alerts(self, list_name: str | None = None) -> List[Dict[str, Any]]:
         """
-        Scans watchlists and identifies all positions that breached alert_high or alert_low levels.
+        Scans watchlists and identifies all positions that breached alert_high or alert_low levels,
+        enforcing expiry days and alert trigger frequency logic.
         """
         con = self.connect()
         try:
-            query = "SELECT list_name, symbol, alert_high, alert_low, notes FROM watchlists"
+            query = "SELECT id, list_name, symbol, alert_high, alert_low, notes, alert_frequency, expiry_days, last_triggered_at, created_at FROM watchlists"
             params = ()
             if list_name:
                 query += " WHERE list_name=?"
@@ -1677,11 +1710,35 @@ class DataEngine:
             rows = con.execute(query, params).fetchall()
 
             alerts = []
-            for lname, sym, a_high, a_low, notes in rows:
+            now_dt = datetime.now()
+            today_str = now_dt.strftime("%Y-%m-%d")
+            now_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
+
+            for wid, lname, sym, a_high, a_low, notes, afreq, exp_days, last_trig, created_at in rows:
                 a_high_val = float(a_high or 0.0)
                 a_low_val = float(a_low or 0.0)
                 if a_high_val <= 0 and a_low_val <= 0:
                     continue
+
+                afreq = (afreq or "ALWAYS").upper()
+                exp_days = int(exp_days if exp_days is not None else 30)
+
+                # Check Expiry
+                if exp_days > 0 and created_at:
+                    try:
+                        c_date = datetime.strptime(created_at[:10], "%Y-%m-%d")
+                        if now_dt > c_date + timedelta(days=exp_days):
+                            continue  # Alert is expired
+                    except Exception:
+                        pass
+
+                # Check Frequency Suppression
+                if last_trig:
+                    if afreq == "ONCE":
+                        continue  # Already triggered once
+                    elif afreq == "DAILY" and last_trig[:10] == today_str:
+                        continue  # Already triggered today
+
                 bars_df = self.get_bars(sym)
                 if bars_df.empty:
                     continue
@@ -1696,7 +1753,11 @@ class DataEngine:
                     thresh = a_low_val
 
                 if triggered_type:
+                    # Record trigger timestamp in DB
+                    con.execute("UPDATE watchlists SET last_triggered_at=? WHERE id=?", (now_str, wid))
+
                     alerts.append({
+                        "id": wid,
                         "list_name": lname,
                         "symbol": sym,
                         "current_price": c_last,
@@ -1704,8 +1765,11 @@ class DataEngine:
                         "threshold": thresh,
                         "alert_high": a_high_val,
                         "alert_low": a_low_val,
+                        "alert_frequency": afreq,
                         "notes": notes or "",
                     })
+
+            con.commit()
             return alerts
         finally:
             con.close()
@@ -2153,6 +2217,25 @@ class DataEngine:
     def evaluate_portfolio_risk(self, holdings: List[Dict[str, Any]], cash: float = 0.0) -> Dict[str, Any]:
         """Evaluate portfolio risk, VaR 95%, and concentration warnings (Feature 48)."""
         return RiskScorecardEngine.evaluate_portfolio_risk(holdings, portfolio_cash=cash)
+
+    def get_portfolio_rebalancing(
+        self,
+        holdings: Optional[List[Dict[str, Any]]] = None,
+        target_mode: str = "EQUAL_WEIGHT",
+        custom_weights: Optional[Dict[str, float]] = None,
+        portfolio_cash: float = 0.0,
+        min_trade_lkr: float = 5000.0
+    ) -> Dict[str, Any]:
+        """Calculate recommended rebalancing trade orders for portfolio positions."""
+        if holdings is None:
+            holdings = self.get_portfolio_positions()
+        return RiskScorecardEngine.calculate_portfolio_rebalance(
+            holdings=holdings,
+            target_mode=target_mode,
+            custom_weights=custom_weights,
+            portfolio_cash=portfolio_cash,
+            min_trade_lkr=min_trade_lkr
+        )
 
     def scan_equity_signals(
         self,

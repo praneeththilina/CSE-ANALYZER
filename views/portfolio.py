@@ -103,6 +103,9 @@ class PortfolioTab(ttk.Frame):
         self.lbl_risk_warnings = ttk.Label(self, text="", font=("Segoe UI", 9), foreground="#b91c1c")
         self.lbl_risk_warnings.pack(anchor="w", padx=4, pady=(0, 6))
 
+        # ── Target Rebalancing Panel ────────────────────────────────────
+        self._build_rebalance_panel()
+
         # ── Content: Table + Pie Chart ──────────────────────────────────
         content = ttk.Frame(self)
         content.pack(fill="both", expand=True)
@@ -301,6 +304,113 @@ class PortfolioTab(ttk.Frame):
             self.load_data()
         except Exception as e:
             messagebox.showerror("Error", f"Could not add trade: {e}")
+
+    def _build_rebalance_panel(self):
+        """Builds the Portfolio Target Rebalancing FormCard panel."""
+        self.rebalance_card = FormCard(
+            self,
+            title="⚖️ Portfolio Target Rebalancing",
+            accent_color="#7c3aed",
+            bg_color="#f3e8ff",
+            border_color="#d8b4fe",
+            icon="⚖️",
+        )
+        self.rebalance_card.pack(fill="x", pady=(0, 8))
+
+        top_row = tk.Frame(self.rebalance_card.body, bg="#f3e8ff")
+        top_row.pack(fill="x", pady=(0, 4))
+
+        tk.Label(top_row, text="Allocation Model:", font=FONT_BODY, bg="#f3e8ff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
+        self.rebal_mode_var = tk.StringVar(value="EQUAL_WEIGHT")
+        mode_combo = ttk.Combobox(top_row, textvariable=self.rebal_mode_var, values=["EQUAL_WEIGHT", "CUSTOM"], width=16, state="readonly")
+        mode_combo.pack(side="left", padx=(0, 12))
+
+        tk.Label(top_row, text="Custom Weights (e.g. COMB:40, JKH:60):", font=FONT_BODY, bg="#f3e8ff", fg=WIN11_TEXT_MAIN).pack(side="left", padx=(0, 4))
+        self.custom_weights_var = tk.StringVar()
+        ttk.Entry(top_row, textvariable=self.custom_weights_var, width=30).pack(side="left", padx=(0, 12))
+
+        ttk.Button(top_row, text="⚖️ Calculate Rebalance Plan", command=self._on_calculate_rebalance, style="Accent.TButton").pack(side="left", padx=4)
+
+        # Rebalance Trade Plan Treeview
+        rebal_table_frame = ttk.Frame(self.rebalance_card.body)
+        rebal_table_frame.pack(fill="x", expand=True, pady=(4, 0))
+
+        rebal_cols = ("symbol", "action", "price", "curr_qty", "curr_pct", "target_pct", "target_qty", "trade_qty", "est_lkr")
+        self.tree_rebal = SortableTreeview(rebal_table_frame, columns=rebal_cols, height=4)
+
+        self.tree_rebal.heading("symbol", text="Symbol")
+        self.tree_rebal.heading("action", text="Action")
+        self.tree_rebal.heading("price", text="Price (LKR)")
+        self.tree_rebal.heading("curr_qty", text="Current Qty")
+        self.tree_rebal.heading("curr_pct", text="Current %")
+        self.tree_rebal.heading("target_pct", text="Target %")
+        self.tree_rebal.heading("target_qty", text="Target Qty")
+        self.tree_rebal.heading("trade_qty", text="Trade Shares")
+        self.tree_rebal.heading("est_lkr", text="Est Value (LKR)")
+
+        self.tree_rebal.column("symbol", width=90, anchor="w")
+        self.tree_rebal.column("action", width=70, anchor="center")
+        self.tree_rebal.column("price", width=85, anchor="e")
+        self.tree_rebal.column("curr_qty", width=80, anchor="e")
+        self.tree_rebal.column("curr_pct", width=70, anchor="e")
+        self.tree_rebal.column("target_pct", width=70, anchor="e")
+        self.tree_rebal.column("target_qty", width=80, anchor="e")
+        self.tree_rebal.column("trade_qty", width=85, anchor="e")
+        self.tree_rebal.heading("est_lkr", text="Est Value (LKR)")
+        self.tree_rebal.column("est_lkr", width=110, anchor="e")
+
+        rebal_scroll = ttk.Scrollbar(rebal_table_frame, orient="vertical", command=self.tree_rebal.yview)
+        self.tree_rebal.configure(yscrollcommand=rebal_scroll.set)
+        self.tree_rebal.pack(side="left", fill="x", expand=True)
+        rebal_scroll.pack(side="right", fill="y")
+
+        self.tree_rebal.tag_configure("rebal_buy", foreground=WIN11_GREEN)
+        self.tree_rebal.tag_configure("rebal_sell", foreground=WIN11_RED)
+
+    def _on_calculate_rebalance(self):
+        mode = self.rebal_mode_var.get()
+        custom_str = self.custom_weights_var.get().strip()
+
+        custom_map = {}
+        if mode == "CUSTOM" and custom_str:
+            try:
+                parts = custom_str.split(",")
+                for p in parts:
+                    if ":" in p:
+                        s, w = p.split(":")
+                        custom_map[s.strip().upper()] = float(w.strip())
+            except Exception:
+                messagebox.showwarning("Rebalance", "Invalid custom weights format. Use 'SYMBOL:WEIGHT, SYMBOL2:WEIGHT'.")
+                return
+
+        self.app.set_status("Calculating portfolio rebalancing model...")
+
+        def task():
+            return self.app.engine.get_portfolio_rebalancing(
+                target_mode=mode,
+                custom_weights=custom_map if mode == "CUSTOM" else None
+            )
+
+        def on_done(res):
+            trades = res.get("rebalance_trades", [])
+            self.tree_rebal.delete(*self.tree_rebal.get_children())
+            for t in trades:
+                act = t.get("action", "HOLD")
+                tag = "rebal_buy" if act == "BUY" else ("rebal_sell" if act == "SELL" else "")
+                self.tree_rebal.insert("", "end", values=(
+                    t.get("symbol", ""),
+                    act,
+                    f"{t.get('current_price', 0.0):.2f}",
+                    t.get("current_qty", 0),
+                    f"{t.get('current_pct', 0.0):.1f}%",
+                    f"{t.get('target_pct', 0.0):.1f}%",
+                    t.get("target_qty", 0),
+                    t.get("shares_to_trade", 0),
+                    fmt_currency(t.get("est_trade_lkr", 0.0), "")
+                ), tags=(tag,))
+            self.app.set_status(res.get("summary", "Rebalance calculation complete."))
+
+        ThreadedTask(self.app.root, target=task, on_done=on_done, on_error=self._on_error).start()
 
     def _delete_trade(self):
         sel = self.tree.selection()

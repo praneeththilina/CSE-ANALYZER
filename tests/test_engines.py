@@ -95,6 +95,53 @@ class TestCoreEngines(unittest.TestCase):
         self.assertIn("shares_to_buy", pos_size)
         self.assertGreater(pos_size["shares_to_buy"], 0)
 
+    def test_portfolio_rebalancing(self):
+        holdings = [
+            {"symbol": "COMB.N0000", "current_price": 100.0, "quantity": 1000, "current_value": 100000.0},
+            {"symbol": "JKH.N0000", "current_price": 200.0, "quantity": 1000, "current_value": 200000.0}
+        ]
+        res = RiskScorecardEngine.calculate_portfolio_rebalance(
+            holdings=holdings,
+            target_mode="EQUAL_WEIGHT",
+            portfolio_cash=0.0
+        )
+        self.assertEqual(res["total_portfolio_value"], 300000.0)
+        self.assertEqual(len(res["rebalance_trades"]), 2)
+
+        # COMB should be target 150k (BUY 500 shares), JKH target 150k (SELL 250 shares)
+        comb_trade = next(t for t in res["rebalance_trades"] if t["symbol"] == "COMB.N0000")
+        jkh_trade = next(t for t in res["rebalance_trades"] if t["symbol"] == "JKH.N0000")
+        self.assertEqual(comb_trade["action"], "BUY")
+        self.assertEqual(jkh_trade["action"], "SELL")
+
+    def test_watchlist_expiry_and_frequency(self):
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+            db_path = tmp.name
+
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE symbols (symbol TEXT PRIMARY KEY, industry TEXT, enabled INTEGER)")
+        conn.execute("CREATE TABLE bars (symbol TEXT, date TEXT, close REAL, high REAL, low REAL, volume REAL)")
+        conn.execute("INSERT INTO symbols VALUES ('COMB.N0000', 'Banking', 1)")
+        conn.execute("INSERT INTO bars VALUES ('COMB.N0000', '2023-01-01', 120.0, 125.0, 115.0, 10000)")
+        conn.commit()
+        conn.close()
+
+        engine = DataEngine(db_path=db_path)
+        engine.add_to_watchlist("TestList", "COMB.N0000", alert_high=115.0, alert_frequency="ONCE", expiry_days=30)
+
+        items = engine.get_watchlist_items("TestList")
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["alert_frequency"], "ONCE")
+
+        # Check alert trigger
+        alerts = engine.check_watchlist_alerts("TestList")
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual(alerts[0]["symbol"], "COMB.N0000")
+
+        # Second check should suppress trigger because frequency is ONCE
+        alerts_2nd = engine.check_watchlist_alerts("TestList")
+        self.assertEqual(len(alerts_2nd), 0)
+
     def test_ml_engine(self):
         fund = FundamentalEngine.generate_fundamental_profile("COMB.N0000", "Commercial Bank", "Banking", 120.0)
         mkt = MarketContextEngine.compute_benchmark_relative_strength(self.df)
