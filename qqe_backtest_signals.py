@@ -281,17 +281,11 @@ def run_backtest_signals(
 
 # ---------------- Full Backtest Engine (New) ----------------
 
-def run_full_backtest(bars_df: pd.DataFrame, params: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Runs a full vector-based backtest on a single symbol.
-    """
-    # 1. Get parameters
-    initial_capital = params.get("initial_capital", 100000)
-    commission_pct = params.get("commission_pct", 0.001)
-    stop_loss_pct = params.get("stop_loss_pct", 0)
-    take_profit_pct = params.get("take_profit_pct", 0)
-    
-    # 2. Generate QQE signals
+def _prepare_backtest_data(bars_df: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
+    """Computes QQE signals and merges them with bar data."""
+    if bars_df.empty:
+        return pd.DataFrame()
+
     qqe_df = compute_qqe_pine_equiv(
         bars_df["close"],
         rsi_period=params.get("rsi_period", 14),
@@ -299,159 +293,219 @@ def run_full_backtest(bars_df: pd.DataFrame, params: Dict[str, Any]) -> Dict[str
         qqe_factor=params.get("qqe_factor", 4.238),
         threshold=params.get("threshold", 10),
     )
-    
     df = pd.concat([bars_df, qqe_df], axis=1)
     df = df.dropna(subset=["close", "fast_tl"])
-    df['date'] = df.index
-    
-    # 3. Simulate trades
+    df["date"] = df.index
+    return df
+
+
+def _check_long_exit(
+    row: pd.Series,
+    entry_price: float,
+    stop_loss_pct: float,
+    take_profit_pct: float,
+) -> tuple[str | None, float]:
+    """Checks SL, TP, or signal exit for a long position."""
+    sl_price = entry_price * (1 - stop_loss_pct)
+    tp_price = entry_price * (1 + take_profit_pct)
+
+    if stop_loss_pct > 0 and row["low"] <= sl_price:
+        return "Stop Loss", sl_price
+    if take_profit_pct > 0 and row["high"] >= tp_price:
+        return "Take Profit", tp_price
+    if row["signal"] == -1:
+        return "Signal Exit", row["open"]
+
+    return None, 0.0
+
+
+def _check_short_exit(
+    row: pd.Series,
+    entry_price: float,
+    stop_loss_pct: float,
+    take_profit_pct: float,
+) -> tuple[str | None, float]:
+    """Checks SL, TP, or signal exit for a short position."""
+    sl_price = entry_price * (1 + stop_loss_pct)
+    tp_price = entry_price * (1 - take_profit_pct)
+
+    if stop_loss_pct > 0 and row["high"] >= sl_price:
+        return "Stop Loss", sl_price
+    if take_profit_pct > 0 and row["low"] <= tp_price:
+        return "Take Profit", tp_price
+    if row["signal"] == 1:
+        return "Signal Exit", row["open"]
+
+    return None, 0.0
+
+
+def _simulate_trades(
+    df: pd.DataFrame,
+    initial_capital: float,
+    commission_pct: float,
+    stop_loss_pct: float,
+    take_profit_pct: float,
+) -> tuple[list[dict], list[dict]]:
+    """Simulates trade entries and exits and calculates the equity curve."""
+    if df.empty:
+        return [], []
+
     equity = initial_capital
-    position = 0 # 0 = flat, 1 = long, -1 = short
+    position = 0  # 0 = flat, 1 = long, -1 = short
     entry_price = 0.0
     entry_date = pd.NaT
     entry_equity = 0.0
     trades = []
     equity_curve = [{"date": df.index[0], "equity": initial_capital}]
-    
+
     for i in range(1, len(df)):
         row = df.iloc[i]
-        
-        # Check for exit conditions first
-        if position == 1: # We are long
-            exit_reason = None
-            exit_price = 0.0
-            
-            # Check for SL/TP hits (simulating intrabar)
-            sl_price = entry_price * (1 - stop_loss_pct)
-            tp_price = entry_price * (1 + take_profit_pct)
 
-            if stop_loss_pct > 0 and row['low'] <= sl_price:
-                exit_reason = "Stop Loss"
-                exit_price = sl_price # Assume SL price hit
-            elif take_profit_pct > 0 and row['high'] >= tp_price:
-                exit_reason = "Take Profit"
-                exit_price = tp_price # Assume TP price hit
-            elif row['signal'] == -1: # Opposite signal
-                exit_reason = "Signal Exit"
-                exit_price = row['open'] # Exit on next bar open
-
+        if position == 1:
+            exit_reason, exit_price = _check_long_exit(
+                row, entry_price, stop_loss_pct, take_profit_pct
+            )
             if exit_reason:
                 ret = (exit_price / entry_price) - 1
                 equity_change = entry_equity * (1 + ret) * (1 - commission_pct) - entry_equity
                 equity += equity_change
-                
                 trades.append({
-                    "entry_date": entry_date, "exit_date": row['date'], "side": "Long",
-                    "entry_price": entry_price, "exit_price": exit_price,
-                    "return_pct": ret * 100, "pnl": equity_change, "exit_reason": exit_reason
+                    "entry_date": entry_date,
+                    "exit_date": row["date"],
+                    "side": "Long",
+                    "entry_price": entry_price,
+                    "exit_price": exit_price,
+                    "return_pct": ret * 100,
+                    "pnl": equity_change,
+                    "exit_reason": exit_reason,
                 })
                 position = 0
 
-        elif position == -1: # We are short
-            exit_reason = None
-            exit_price = 0.0
-            
-            sl_price = entry_price * (1 + stop_loss_pct)
-            tp_price = entry_price * (1 - take_profit_pct)
-
-            if stop_loss_pct > 0 and row['high'] >= sl_price:
-                exit_reason = "Stop Loss"
-                exit_price = sl_price
-            elif take_profit_pct > 0 and row['low'] <= tp_price:
-                exit_reason = "Take Profit"
-                exit_price = tp_price
-            elif row['signal'] == 1: # Opposite signal
-                exit_reason = "Signal Exit"
-                exit_price = row['open']
-
+        elif position == -1:
+            exit_reason, exit_price = _check_short_exit(
+                row, entry_price, stop_loss_pct, take_profit_pct
+            )
             if exit_reason:
                 ret = (entry_price / exit_price) - 1
                 equity_change = entry_equity * (1 + ret) * (1 - commission_pct) - entry_equity
                 equity += equity_change
-                
                 trades.append({
-                    "entry_date": entry_date, "exit_date": row['date'], "side": "Short",
-                    "entry_price": entry_price, "exit_price": exit_price,
-                    "return_pct": ret * 100, "pnl": equity_change, "exit_reason": exit_reason
+                    "entry_date": entry_date,
+                    "exit_date": row["date"],
+                    "side": "Short",
+                    "entry_price": entry_price,
+                    "exit_price": exit_price,
+                    "return_pct": ret * 100,
+                    "pnl": equity_change,
+                    "exit_reason": exit_reason,
                 })
                 position = 0
 
-        # Check for entry conditions
         if position == 0:
-            if row['signal'] == 1: # Go long
+            if row["signal"] == 1:
                 position = 1
-                entry_price = row['open'] # Enter on next bar open
-                entry_date = row['date']
-                entry_equity = equity * (1 - commission_pct) # Apply commission on entry
-                equity = entry_equity
-            elif row['signal'] == -1: # Go short
-                position = -1
-                entry_price = row['open']
-                entry_date = row['date']
+                entry_price = row["open"]
+                entry_date = row["date"]
                 entry_equity = equity * (1 - commission_pct)
                 equity = entry_equity
-        
-        # Update equity curve regardless of trade
-        # If in position, mark equity to market
+            elif row["signal"] == -1:
+                position = -1
+                entry_price = row["open"]
+                entry_date = row["date"]
+                entry_equity = equity * (1 - commission_pct)
+                equity = entry_equity
+
         current_equity = equity
         if position == 1:
-            current_equity = entry_equity * (row['close'] / entry_price)
+            current_equity = entry_equity * (row["close"] / entry_price)
         elif position == -1:
-            current_equity = entry_equity * (entry_price / row['close'])
-            
-        equity_curve.append({"date": row['date'], "equity": current_equity})
+            current_equity = entry_equity * (entry_price / row["close"])
 
-    # 4. Compile Report
+        equity_curve.append({"date": row["date"], "equity": current_equity})
+
+    return trades, equity_curve
+
+
+def _compile_backtest_report(
+    trades: list[dict],
+    equity_curve: list[dict],
+    initial_capital: float,
+) -> Dict[str, Any]:
+    """Compiles statistics, equity curve DataFrame, and trades DataFrame."""
     trades_df = pd.DataFrame(trades)
     equity_df = pd.DataFrame(equity_curve)
 
-    # Calculate stats
-    total_return = (equity_df['equity'].iloc[-1] / initial_capital - 1) * 100
-    total_trades = len(trades_df)
-    
-    if total_trades > 0:
-        wins = trades_df[trades_df['pnl'] > 0]
-        losses = trades_df[trades_df['pnl'] < 0]
-        
-        win_rate = (len(wins) / total_trades) * 100 if total_trades > 0 else 0
-        avg_win = wins['pnl'].mean() if not wins.empty else 0
-        avg_loss = losses['pnl'].mean() if not losses.empty else 0
-        profit_factor = abs(wins['pnl'].sum() / losses['pnl'].sum()) if losses['pnl'].sum() != 0 else float('inf')
-        
-        # Max Drawdown
-        equity_df['peak'] = equity_df['equity'].cummax()
-        equity_df['drawdown'] = (equity_df['equity'] / equity_df['peak']) - 1
-        max_drawdown = equity_df['drawdown'].min() * 100
+    if not equity_df.empty and "equity" in equity_df.columns:
+        final_equity = equity_df["equity"].iloc[-1]
+        total_return = (final_equity / initial_capital - 1) * 100
     else:
-        win_rate = 0
-        avg_win = 0
-        avg_loss = 0
-        profit_factor = 0
-        max_drawdown = 0
+        final_equity = initial_capital
+        total_return = 0.0
+
+    total_trades = len(trades_df)
+
+    if total_trades > 0:
+        wins = trades_df[trades_df["pnl"] > 0]
+        losses = trades_df[trades_df["pnl"] < 0]
+
+        win_rate = (len(wins) / total_trades) * 100
+        avg_win = wins["pnl"].mean() if not wins.empty else 0.0
+        avg_loss = losses["pnl"].mean() if not losses.empty else 0.0
+        loss_sum = losses["pnl"].sum()
+        profit_factor = abs(wins["pnl"].sum() / loss_sum) if loss_sum != 0 else float("inf")
+
+        equity_df["peak"] = equity_df["equity"].cummax()
+        equity_df["drawdown"] = (equity_df["equity"] / equity_df["peak"]) - 1
+        max_drawdown = equity_df["drawdown"].min() * 100
+    else:
+        win_rate = 0.0
+        avg_win = 0.0
+        avg_loss = 0.0
+        profit_factor = 0.0
+        max_drawdown = 0.0
 
     stats = {
         "Total Return (%)": f"{total_return:.2f}",
         "Total Trades": total_trades,
         "Win Rate (%)": f"{win_rate:.2f}",
-        "Profit Factor": f"{profit_factor:.2f}" if profit_factor != float('inf') else "inf",
+        "Profit Factor": f"{profit_factor:.2f}" if profit_factor != float("inf") else "inf",
         "Avg. Win (LKR)": f"{avg_win:.2f}",
         "Avg. Loss (LKR)": f"{avg_loss:.2f}",
         "Max. Drawdown (%)": f"{max_drawdown:.2f}",
-        "Final Equity (LKR)": f"{equity_df['equity'].iloc[-1]:.2f}",
+        "Final Equity (LKR)": f"{final_equity:.2f}",
     }
-    
-    # Ensure trades_df has correct dtypes for JSON conversion
+
     if not trades_df.empty:
-        trades_df['entry_price'] = trades_df['entry_price'].astype(float)
-        trades_df['exit_price'] = trades_df['exit_price'].astype(float)
-        trades_df['return_pct'] = trades_df['return_pct'].astype(float)
-        trades_df['pnl'] = trades_df['pnl'].astype(float)
+        trades_df["entry_price"] = trades_df["entry_price"].astype(float)
+        trades_df["exit_price"] = trades_df["exit_price"].astype(float)
+        trades_df["return_pct"] = trades_df["return_pct"].astype(float)
+        trades_df["pnl"] = trades_df["pnl"].astype(float)
 
     return {
         "stats": stats,
         "equity_curve": equity_df,
-        "trades": trades_df
+        "trades": trades_df,
     }
+
+
+def run_full_backtest(bars_df: pd.DataFrame, params: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Runs a full vector-based backtest on a single symbol.
+    """
+    initial_capital = params.get("initial_capital", 100000.0)
+    commission_pct = params.get("commission_pct", 0.001)
+    stop_loss_pct = params.get("stop_loss_pct", 0.0)
+    take_profit_pct = params.get("take_profit_pct", 0.0)
+
+    df = _prepare_backtest_data(bars_df, params)
+    trades, equity_curve = _simulate_trades(
+        df=df,
+        initial_capital=initial_capital,
+        commission_pct=commission_pct,
+        stop_loss_pct=stop_loss_pct,
+        take_profit_pct=take_profit_pct,
+    )
+    return _compile_backtest_report(trades, equity_curve, initial_capital)
 
 
 # ---------------- CLI Wrapper (for original file) ----------------
