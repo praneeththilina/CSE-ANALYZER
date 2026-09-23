@@ -1748,6 +1748,7 @@ class DataEngine:
             today_str = now_dt.strftime("%Y-%m-%d")
             now_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
 
+            candidates = []
             for wid, lname, sym, a_high, a_low, notes, afreq, exp_days, last_trig, created_at in rows:
                 a_high_val = float(a_high or 0.0)
                 a_low_val = float(a_low or 0.0)
@@ -1773,10 +1774,32 @@ class DataEngine:
                     elif afreq == "DAILY" and last_trig[:10] == today_str:
                         continue  # Already triggered today
 
-                bars_df = self.get_bars(sym)
-                if bars_df.empty:
+                candidates.append((wid, lname, sym, a_high_val, a_low_val, notes, afreq))
+
+            if not candidates:
+                con.commit()
+                return []
+
+            # Bulk fetch latest close prices for candidate symbols
+            unique_syms = list({c[2] for c in candidates})
+            placeholders = ",".join("?" for _ in unique_syms)
+            price_query = f"""
+            SELECT symbol, close
+            FROM (
+                SELECT symbol, close,
+                       ROW_NUMBER() OVER(PARTITION BY symbol ORDER BY date DESC) as rn
+                FROM bars
+                WHERE symbol IN ({placeholders})
+            ) WHERE rn = 1
+            """
+            price_rows = con.execute(price_query, unique_syms).fetchall()
+            latest_prices = {r[0]: float(r[1]) for r in price_rows}
+
+            for wid, lname, sym, a_high_val, a_low_val, notes, afreq in candidates:
+                c_last = latest_prices.get(sym)
+                if c_last is None:
                     continue
-                c_last = float(bars_df["close"].iloc[-1])
+
                 triggered_type = None
                 thresh = 0.0
                 if a_high_val > 0 and c_last >= a_high_val:
