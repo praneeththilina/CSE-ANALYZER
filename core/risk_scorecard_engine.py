@@ -206,9 +206,10 @@ class RiskScorecardEngine:
     def evaluate_portfolio_risk(
         cls,
         holdings: List[Dict[str, Any]],
-        portfolio_cash: float = 0.0
+        portfolio_cash: float = 0.0,
+        benchmark_aspi_return_pct: float = 12.0
     ) -> Dict[str, Any]:
-        """Compute Portfolio Value at Risk (VaR 95%), Sharpe, and Concentration Warnings (Feature 48)."""
+        """Compute Portfolio Value at Risk (VaR 95%), Sharpe, Concentration Warnings, and Portfolio Alpha (Feature 48)."""
         if not holdings:
             return {
                 "total_portfolio_value": round(portfolio_cash, 2),
@@ -218,6 +219,9 @@ class RiskScorecardEngine:
                 "var_95_daily_lkr": 0.0,
                 "var_95_pct": 0.0,
                 "portfolio_beta": 1.0,
+                "portfolio_return_pct": 0.0,
+                "benchmark_aspi_return_pct": benchmark_aspi_return_pct,
+                "portfolio_alpha_pct": 0.0,
                 "sector_concentration": {},
                 "warnings": []
             }
@@ -225,6 +229,11 @@ class RiskScorecardEngine:
         stock_val = sum(float(h.get("market_value", h.get("qty", 0) * h.get("current_price", 0))) for h in holdings)
         total_val = stock_val + portfolio_cash
         cash_pct = round((portfolio_cash / total_val * 100.0), 1) if total_val > 0 else 0.0
+
+        # Calculate weighted portfolio return %
+        pnl_sum = sum(float(h.get("pnl", 0.0)) for h in holdings)
+        cost_basis_sum = sum(float(h.get("cost_basis", h.get("market_value", 0.0) - h.get("pnl", 0.0))) for h in holdings)
+        portfolio_return_pct = round((pnl_sum / cost_basis_sum * 100.0), 2) if cost_basis_sum > 0 else 0.0
 
         # Sector weights & concentration
         sector_weights: Dict[str, float] = {}
@@ -253,6 +262,12 @@ class RiskScorecardEngine:
         weights = [float(h.get("market_value", h.get("qty", 0) * h.get("current_price", 0))) / max(1.0, stock_val) for h in holdings]
         weighted_beta = round(float(np.sum([b * w for b, w in zip(betas, weights)])), 2) if stock_val > 0 else 1.0
 
+        # Jensen's Alpha: Alpha = R_p - [R_f + Beta * (R_m - R_f)]
+        # Assuming Sri Lankan risk-free rate R_f ~ 9.5%
+        rf_rate = 9.5
+        expected_return = rf_rate + weighted_beta * (benchmark_aspi_return_pct - rf_rate)
+        portfolio_alpha_pct = round(portfolio_return_pct - expected_return, 2)
+
         # Parametric Value at Risk (VaR 95% 1-day)
         # Assuming average CSE daily equity volatility ~ 1.6%
         daily_vol = 0.016 * weighted_beta
@@ -267,6 +282,9 @@ class RiskScorecardEngine:
             "var_95_daily_lkr": var_95_lkr,
             "var_95_pct": var_95_pct,
             "portfolio_beta": weighted_beta,
+            "portfolio_return_pct": portfolio_return_pct,
+            "benchmark_aspi_return_pct": benchmark_aspi_return_pct,
+            "portfolio_alpha_pct": portfolio_alpha_pct,
             "sector_concentration": sector_weights,
             "warnings": warnings
         }

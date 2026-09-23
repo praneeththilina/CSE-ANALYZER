@@ -2224,9 +2224,26 @@ class DataEngine:
             avg_daily_volume=avg_daily_volume
         )
 
-    def evaluate_portfolio_risk(self, holdings: List[Dict[str, Any]], cash: float = 0.0) -> Dict[str, Any]:
-        """Evaluate portfolio risk, VaR 95%, and concentration warnings (Feature 48)."""
-        return RiskScorecardEngine.evaluate_portfolio_risk(holdings, portfolio_cash=cash)
+    def evaluate_portfolio_risk(self, holdings: List[Dict[str, Any]], cash: float = 0.0, benchmark_return_pct: float = 12.0) -> Dict[str, Any]:
+        """Evaluate portfolio risk, VaR 95%, concentration warnings, and Portfolio Alpha (Feature 48)."""
+        return RiskScorecardEngine.evaluate_portfolio_risk(holdings, portfolio_cash=cash, benchmark_aspi_return_pct=benchmark_return_pct)
+
+    def run_strategy_optimization(
+        self,
+        symbol: str,
+        starting_capital: float = 1_000_000.0,
+        strategy_mode: str = "QQE / Momentum",
+        param_grid: Optional[Dict[str, List[Any]]] = None
+    ) -> List[Dict[str, Any]]:
+        """Run grid search parameter optimization for a stock strategy."""
+        df = self.get_bars(symbol)
+        df = self.clean_bars_data(df)
+        return BacktestEngine.optimize_strategy_parameters(
+            df=df,
+            starting_capital=starting_capital,
+            strategy_mode=strategy_mode,
+            param_grid=param_grid
+        )
 
     def get_portfolio_rebalancing(
         self,

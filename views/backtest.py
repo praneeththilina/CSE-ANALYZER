@@ -105,6 +105,8 @@ class BacktestTab(ttk.Frame):
 
         ttk.Button(row2, text="⚡ Run Spot Backtest", command=self._run_backtest,
                    style="Accent.TButton").pack(side="right", padx=4)
+        ttk.Button(row2, text="🛠️ Optimize Parameters", command=self._run_optimizer
+                   ).pack(side="right", padx=4)
         ttk.Button(row2, text="🔄 Walk-Forward Validation", command=self._run_walk_forward
                    ).pack(side="right", padx=4)
 
@@ -322,6 +324,75 @@ class BacktestTab(ttk.Frame):
     def _on_error(self, exc: Exception):
         self.app.stop_progress()
         self.app.set_status(f"Backtest error: {exc}")
+
+    def _run_optimizer(self):
+        sym = self.sym_var.get().strip().upper()
+        if not sym:
+            return
+
+        self.app.set_status(f"Running strategy parameter optimization for {sym}...")
+        self.app.start_progress()
+
+        strat = self.strat_var.get()
+
+        def task():
+            return self.app.engine.run_strategy_optimization(symbol=sym, strategy_mode=strat)
+
+        def on_done(results):
+            self.app.stop_progress()
+            self.app.set_status(f"Parameter optimization complete for {sym}")
+            self._show_optimizer_modal(sym, results)
+
+        ThreadedTask(self.app.root, target=task, on_done=on_done, on_error=self._on_error).start()
+
+    def _show_optimizer_modal(self, symbol: str, results: list):
+        win = tk.Toplevel(self.app.root)
+        win.title(f"Strategy Parameter Optimization — {symbol}")
+        win.geometry("680x520")
+        win.configure(bg=WIN11_BG)
+        win.transient(self.app.root)
+        win.grab_set()
+
+        hdr = tk.Frame(win, bg="#059669", padx=16, pady=12)
+        hdr.pack(fill="x")
+        tk.Label(hdr, text=f"🛠️ Parameter Optimization Results: {symbol}", font=("Segoe UI Semibold", 13), bg="#059669", fg="#ffffff").pack(anchor="w")
+        top_res = results[0] if results else {}
+        ret = top_res.get("return_pct", 0.0)
+        sharpe = top_res.get("sharpe_ratio", 0.0)
+        tk.Label(hdr, text=f"Top Config: Target 1 ({top_res.get('target1_rr')}R), Target 2 ({top_res.get('target2_rr')}R), ATR Stop ({top_res.get('atr_stop_multiplier')}x) | Return: {ret:+.2f}% | Sharpe: {sharpe:.2f}", font=("Segoe UI", 9), bg="#059669", fg="#d1fae5").pack(anchor="w")
+
+        body = FormCard(win, title=f"Ranked Strategy Configurations ({len(results)} Combinations Tested)")
+        body.pack(fill="both", expand=True, padx=12, pady=10)
+
+        cols = [
+            ("t1", "Target 1 (R)", 90),
+            ("t2", "Target 2 (R)", 90),
+            ("atr", "ATR Stop (x)", 90),
+            ("risk", "Risk %", 75),
+            ("return", "Return %", 90),
+            ("winrate", "Win Rate %", 90),
+            ("pf", "Profit Factor", 90),
+            ("sharpe", "Sharpe Ratio", 90),
+        ]
+        tree = SortableTreeview(body, cols, selectmode="browse")
+        tree.pack(fill="both", expand=True, padx=4, pady=4)
+
+        for res in results:
+            ret_val = float(res.get("return_pct", 0.0))
+            tag = "pos" if ret_val >= 0 else "neg"
+            tree.insert("", "end", values=(
+                f"{res.get('target1_rr')}R",
+                f"{res.get('target2_rr')}R",
+                f"{res.get('atr_stop_multiplier')}x",
+                f"{res.get('risk_per_trade_pct')}%",
+                f"{ret_val:+.2f}%",
+                f"{res.get('win_rate_pct', 0.0):.1f}%",
+                f"{res.get('profit_factor', 0.0):.2f}",
+                f"{res.get('sharpe_ratio', 0.0):.2f}"
+            ), tags=(tag,))
+
+        tree.tag_configure("pos", foreground=WIN11_GREEN)
+        tree.tag_configure("neg", foreground=WIN11_RED)
 
     def _run_walk_forward(self):
         sym = self.sym_var.get().strip()
