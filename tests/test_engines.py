@@ -12,9 +12,37 @@ from core.risk_scorecard_engine import RiskScorecardEngine
 from core.ml_engine import MLEngine
 from core.market_context_engine import MarketContextEngine
 from core.data_engine import DataEngine
+import qqe_backtest_signals as qbs
 
 
 class TestCoreEngines(unittest.TestCase):
+    def test_load_bars_full(self):
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+            db_path = tmp.name
+
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE bars (symbol TEXT, date TEXT, close REAL, high REAL, low REAL, volume REAL)")
+        conn.execute("INSERT INTO bars VALUES ('TEST.N0000', '2023-01-01', 100.0, 105.0, 95.0, 1000)")
+        conn.execute("INSERT INTO bars VALUES ('TEST.N0000', '2023-01-02', 102.0, 107.0, 99.0, 1500)")
+        conn.commit()
+
+        # Test loading bars when data exists
+        df = qbs.load_bars_full(conn, "TEST.N0000")
+        self.assertEqual(len(df), 2)
+        self.assertListEqual(list(df.columns), ["close", "high", "low", "volume", "open"])
+        # First bar open synthesized from close
+        self.assertEqual(df.iloc[0]["open"], 100.0)
+        # Second bar open synthesized from previous close
+        self.assertEqual(df.iloc[1]["open"], 100.0)
+        self.assertEqual(df.iloc[1]["close"], 102.0)
+
+        # Test loading bars when symbol is empty
+        df_empty = qbs.load_bars_full(conn, "EMPTY.N0000")
+        self.assertTrue(df_empty.empty)
+        self.assertListEqual(list(df_empty.columns), ["open", "high", "low", "close", "volume"])
+
+        conn.close()
+
     def setUp(self):
         dates = pd.date_range("2023-01-01", periods=100, freq="D")
         np.random.seed(42)
