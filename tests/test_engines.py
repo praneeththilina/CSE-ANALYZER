@@ -110,6 +110,39 @@ class TestCoreEngines(unittest.TestCase):
         self.assertIn("f_score", profile["piotroski"])
         self.assertIn("z_score", profile["altman_z"])
 
+    def test_calculate_dividend_discount_model(self):
+        # 1. Standard calculation with default parameters
+        # d1 = 10.0 * (1.0 + 0.05) = 10.5
+        # d1 / (0.13 - 0.05) = 10.5 / 0.08 = 131.25
+        val_default = FundamentalEngine.calculate_dividend_discount_model(dividend_per_share=10.0)
+        self.assertEqual(val_default, 131.25)
+
+        # 2. Custom parameters
+        # d1 = 5.0 * (1.0 + 0.04) = 5.20
+        # d1 / (0.12 - 0.04) = 5.20 / 0.08 = 65.0
+        val_custom = FundamentalEngine.calculate_dividend_discount_model(
+            dividend_per_share=5.0,
+            dividend_growth=0.04,
+            required_return=0.12
+        )
+        self.assertEqual(val_custom, 65.0)
+
+        # 3. Invalid/Edge cases: dividend_per_share <= 0
+        self.assertIsNone(FundamentalEngine.calculate_dividend_discount_model(dividend_per_share=0.0))
+        self.assertIsNone(FundamentalEngine.calculate_dividend_discount_model(dividend_per_share=-2.5))
+
+        # 4. Invalid/Edge cases: required_return <= dividend_growth
+        self.assertIsNone(FundamentalEngine.calculate_dividend_discount_model(
+            dividend_per_share=10.0,
+            dividend_growth=0.08,
+            required_return=0.08
+        ))
+        self.assertIsNone(FundamentalEngine.calculate_dividend_discount_model(
+            dividend_per_share=10.0,
+            dividend_growth=0.10,
+            required_return=0.05
+        ))
+
     def test_backtest_engine(self):
         res = BacktestEngine.run_spot_backtest(self.df, starting_capital=1_000_000.0, strategy_mode="QQE / Momentum")
         self.assertIn("return_pct", res)
