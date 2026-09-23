@@ -260,6 +260,75 @@ class TestCoreEngines(unittest.TestCase):
         self.assertFalse(bars.empty)
         self.assertIn("close", bars.columns)
 
+    def test_compute_52w_extremes(self):
+        # 1. Empty DataFrame and DataFrame with < 10 rows
+        empty_df = pd.DataFrame(columns=["close", "high", "low"])
+        default_res = DataEngine.compute_52w_extremes(empty_df)
+        self.assertEqual(default_res["high_52w"], 0.0)
+        self.assertEqual(default_res["low_52w"], 0.0)
+        self.assertEqual(default_res["dist_high_pct"], 0.0)
+        self.assertEqual(default_res["dist_low_pct"], 0.0)
+        self.assertFalse(default_res["near_breakout"])
+        self.assertEqual(default_res["dist_high_str"], "0.0%")
+
+        small_df = pd.DataFrame({
+            "close": [10.0] * 5,
+            "high": [12.0] * 5,
+            "low": [8.0] * 5
+        })
+        self.assertEqual(DataEngine.compute_52w_extremes(small_df), default_res)
+
+        # 2. Standard DataFrame with >= 10 rows (not near breakout)
+        df_standard = pd.DataFrame({
+            "close": [100.0] * 10 + [120.0],
+            "high": [150.0] * 10 + [125.0],
+            "low": [80.0] * 10 + [110.0]
+        })
+        res_std = DataEngine.compute_52w_extremes(df_standard)
+        self.assertEqual(res_std["high_52w"], 150.0)
+        self.assertEqual(res_std["low_52w"], 80.0)
+        # close=120, high_52w=150 -> (120-150)/150 * 100 = -20.0%
+        self.assertEqual(res_std["dist_high_pct"], -20.0)
+        # close=120, low_52w=80 -> (120-80)/80 * 100 = 50.0%
+        self.assertEqual(res_std["dist_low_pct"], 50.0)
+        self.assertFalse(res_std["near_breakout"])
+        self.assertEqual(res_std["dist_high_str"], "-20.0%")
+
+        # 3. Near breakout condition (dist_high_pct >= -5.0%)
+        df_breakout = pd.DataFrame({
+            "close": [100.0] * 10 + [147.0],
+            "high": [150.0] * 10 + [148.0],
+            "low": [80.0] * 10 + [140.0]
+        })
+        res_breakout = DataEngine.compute_52w_extremes(df_breakout)
+        # close=147, high_52w=150 -> (147-150)/150 * 100 = -2.0%
+        self.assertEqual(res_breakout["dist_high_pct"], -2.0)
+        self.assertTrue(res_breakout["near_breakout"])
+        self.assertIn("🔥", res_breakout["dist_high_str"])
+        self.assertEqual(res_breakout["dist_high_str"], "-2.0% 🔥")
+
+        # 4. Windowing test: > 250 rows (sub = df.tail(250))
+        dates = pd.date_range("2020-01-01", periods=300, freq="D")
+        highs = [200.0] * 50 + [150.0] * 250
+        lows = [50.0] * 50 + [80.0] * 250
+        closes = [100.0] * 50 + [120.0] * 250
+        df_long = pd.DataFrame({"close": closes, "high": highs, "low": lows}, index=dates)
+
+        res_long = DataEngine.compute_52w_extremes(df_long)
+        # Old high 200.0 was in the first 50 rows, so tail(250) high should be 150.0
+        self.assertEqual(res_long["high_52w"], 150.0)
+        self.assertEqual(res_long["low_52w"], 80.0)
+
+        # 5. Zero high edge case
+        df_zero = pd.DataFrame({
+            "close": [0.0] * 10,
+            "high": [0.0] * 10,
+            "low": [0.0] * 10
+        })
+        res_zero = DataEngine.compute_52w_extremes(df_zero)
+        self.assertEqual(res_zero["high_52w"], 0.0)
+        self.assertEqual(res_zero["dist_high_pct"], 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()
