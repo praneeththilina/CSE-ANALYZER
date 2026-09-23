@@ -44,14 +44,26 @@ class TestCoreEngines(unittest.TestCase):
         conn.close()
 
     def setUp(self):
+        self.tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self.db_path = self.tmp_db.name
+
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("CREATE TABLE symbols (symbol TEXT PRIMARY KEY, industry TEXT, enabled INTEGER)")
+        conn.execute("CREATE TABLE bars (symbol TEXT, date TEXT, close REAL, high REAL, low REAL, volume REAL)")
+        conn.commit()
+        conn.close()
+
         dates = pd.date_range("2023-01-01", periods=100, freq="D")
         np.random.seed(42)
         closes = np.linspace(100.0, 150.0, 100) + np.random.normal(0, 2, 100)
         highs = closes + np.random.uniform(1.0, 5.0, 100)
         lows = closes - np.random.uniform(1.0, 5.0, 100)
         volumes = np.random.randint(1000, 50000, 100)
+        opens = closes.copy()
+        opens[1:] = closes[:-1]
 
         self.df = pd.DataFrame({
+            "open": opens,
             "close": closes,
             "high": highs,
             "low": lows,
@@ -259,6 +271,112 @@ class TestCoreEngines(unittest.TestCase):
         bars = engine.get_bars("COMB.N0000")
         self.assertFalse(bars.empty)
         self.assertIn("close", bars.columns)
+
+    def test_compute_spot_signals_insufficient_data(self):
+        engine = DataEngine(db_path=self.db_path)
+        # Test empty dataframe
+        res_empty = engine.compute_spot_signals(pd.DataFrame())
+        self.assertEqual(res_empty["action"], "HOLD")
+        self.assertEqual(res_empty["setup_type"], "Insufficient Data")
+        self.assertFalse(res_empty["is_buy"])
+        self.assertFalse(res_empty["is_exit"])
+        self.assertEqual(res_empty["current_price"], 0.0)
+
+        # Test dataframe with less than 25 bars
+        short_df = self.df.iloc[:20]
+        res_short = engine.compute_spot_signals(short_df)
+        self.assertEqual(res_short["action"], "HOLD")
+        self.assertEqual(res_short["setup_type"], "Insufficient Data")
+
+    def test_compute_spot_signals_hold_and_structure(self):
+        engine = DataEngine(db_path=self.db_path)
+        res = engine.compute_spot_signals(self.df)
+        expected_keys = [
+            "action", "setup_type", "signal_text", "is_buy", "is_exit", "is_hold",
+            "current_price", "entry_price", "target1", "target2", "stop_loss",
+            "trailing_stop", "risk_unit", "score", "grade", "stars", "trend",
+            "vol_ratio", "divergence", "weekly_trend", "pattern", "dist_52w",
+            "near_breakout", "reason", "date", "atr", "support", "resistance"
+        ]
+        for key in expected_keys:
+            self.assertIn(key, res)
+        self.assertIsInstance(res["is_buy"], bool)
+        self.assertIsInstance(res["is_exit"], bool)
+        self.assertIsInstance(res["is_hold"], bool)
+
+    def test_compute_spot_signals_breakout_buy(self):
+        engine = DataEngine(db_path=self.db_path)
+        df = self.df.copy()
+        df["volume"] = df["volume"].astype(float)
+        # Force breakout on last bar: close and high strictly above 20-day high with volume surge
+        high_20d = float(df["high"].iloc[:-1].tail(20).max())
+        df.iloc[-1, df.columns.get_loc("close")] = high_20d + 10.0
+        df.iloc[-1, df.columns.get_loc("high")] = high_20d + 12.0
+        df.iloc[-1, df.columns.get_loc("open")] = high_20d + 8.0
+        df.iloc[-1, df.columns.get_loc("volume")] = float(df["volume"].mean() * 3.0)
+
+        res = engine.compute_spot_signals(df)
+        self.assertEqual(res["action"], "BUY")
+        self.assertTrue(res["is_buy"])
+        self.assertIn("Breakout BUY", res["setup_type"])
+
+    def test_compute_spot_signals_pullback_buy(self):
+        engine = DataEngine(db_path=self.db_path)
+        dates = pd.date_range("2023-01-01", periods=100, freq="D")
+        closes = np.linspace(50.0, 150.0, 100)
+        highs = closes + 2.0
+        lows = closes - 2.0
+        vols = np.full(100, 10000.0)
+        opens = closes - 1.0
+
+        df = pd.DataFrame({"open": opens, "close": closes, "high": highs, "low": lows, "volume": vols}, index=dates)
+
+        ema50 = float(df["close"].ewm(span=50, adjust=False).mean().iloc[-1])
+        df.iloc[-1, df.columns.get_loc("close")] = ema50 + 0.1
+        df.iloc[-1, df.columns.get_loc("open")] = ema50 - 0.5
+        df.iloc[-1, df.columns.get_loc("high")] = ema50 + 1.0
+        df.iloc[-1, df.columns.get_loc("low")] = ema50 - 1.0
+
+        res = engine.compute_spot_signals(df)
+        self.assertEqual(res["action"], "BUY")
+        self.assertTrue(res["is_buy"])
+        self.assertIn("Pullback BUY", res["setup_type"])
+
+    def test_compute_spot_signals_golden_cross_buy(self):
+        engine = DataEngine(db_path=self.db_path)
+        dates = pd.date_range("2023-01-01", periods=80, freq="D")
+        closes = np.concatenate([np.linspace(150.0, 100.0, 75), np.linspace(101.0, 140.0, 5)])
+        highs = closes + 2.0
+        lows = closes - 2.0
+        vols = np.full(80, 10000.0)
+        opens = closes - 1.0
+
+        df = pd.DataFrame({"open": opens, "close": closes, "high": highs, "low": lows, "volume": vols}, index=dates)
+
+        res = engine.compute_spot_signals(df)
+        self.assertIn(res["action"], ["BUY", "HOLD", "EXIT"])
+        self.assertIn("action", res)
+
+    def test_compute_spot_signals_trend_breakdown_exit(self):
+        engine = DataEngine(db_path=self.db_path)
+        dates = pd.date_range("2023-01-01", periods=60, freq="D")
+        closes = np.linspace(100.0, 120.0, 60)
+        highs = closes + 1.0
+        lows = closes - 1.0
+        vols = np.full(60, 1000.0)
+        opens = closes - 0.5
+
+        df = pd.DataFrame({"open": opens, "close": closes, "high": highs, "low": lows, "volume": vols}, index=dates)
+
+        df.iloc[-1, df.columns.get_loc("close")] = 80.0
+        df.iloc[-1, df.columns.get_loc("high")] = 81.0
+        df.iloc[-1, df.columns.get_loc("low")] = 79.0
+        df.iloc[-1, df.columns.get_loc("volume")] = 5000.0
+
+        res = engine.compute_spot_signals(df)
+        self.assertEqual(res["action"], "EXIT")
+        self.assertTrue(res["is_exit"])
+        self.assertIn("Trend Breakdown", res["setup_type"])
 
 
 if __name__ == "__main__":
