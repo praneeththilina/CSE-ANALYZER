@@ -234,6 +234,54 @@ class TestCoreEngines(unittest.TestCase):
         cb = MarketContextEngine.check_circuit_breakers_and_bands(120.0, 115.0)
         self.assertIn("upper_circuit_limit", cb)
 
+    def test_compute_sector_rotation_matrix(self):
+        # Test with empty sector stocks dictionary
+        results_empty = MarketContextEngine.compute_sector_rotation_matrix({})
+        self.assertIsInstance(results_empty, list)
+        self.assertGreater(len(results_empty), 0)
+
+        expected_keys = {
+            "sector",
+            "daily_change_pct",
+            "weekly_change_pct",
+            "monthly_change_pct",
+            "rotation_stage",
+            "badge_color"
+        }
+        for item in results_empty:
+            self.assertTrue(expected_keys.issubset(item.keys()))
+
+        # Verify sorting by weekly_change_pct descending
+        weekly_changes = [item["weekly_change_pct"] for item in results_empty]
+        self.assertEqual(weekly_changes, sorted(weekly_changes, reverse=True))
+
+        # Test with populated sector stocks dictionary
+        sample_sector_stocks = {
+            "Banking": [{"symbol": "COMB.N0000", "close": 120.0}],
+            "Capital Goods": [{"symbol": "JKH.N0000", "close": 200.0}]
+        }
+        results_populated = MarketContextEngine.compute_sector_rotation_matrix(sample_sector_stocks)
+        self.assertIsInstance(results_populated, list)
+        self.assertGreater(len(results_populated), 0)
+        for item in results_populated:
+            self.assertTrue(expected_keys.issubset(item.keys()))
+
+    def test_get_macro_overlay(self):
+        macro = MarketContextEngine.get_macro_overlay()
+        self.assertIsInstance(macro, dict)
+        self.assertIn("cbsl_rates", macro)
+        self.assertIn("treasury_bills", macro)
+        self.assertIn("inflation", macro)
+        self.assertIn("forex", macro)
+        self.assertIn("foreign_flows", macro)
+
+        self.assertIn("sdfr", macro["cbsl_rates"])
+        self.assertIn("slfr", macro["cbsl_rates"])
+        self.assertIn("yield_3m", macro["treasury_bills"])
+        self.assertIn("ccpi_headline", macro["inflation"])
+        self.assertIn("usd_lkr", macro["forex"])
+        self.assertIn("net_purchases_lkr_mil", macro["foreign_flows"])
+
     def test_data_engine(self):
         with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
             db_path = tmp.name
