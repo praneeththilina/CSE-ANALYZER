@@ -16,6 +16,37 @@ import qqe_backtest_signals as qbs
 
 
 class TestCoreEngines(unittest.TestCase):
+    def test_ema(self):
+        # 1. Standard calculation test
+        # span=3 -> alpha = 2 / (3 + 1) = 0.5
+        # y_0 = 10.0
+        # y_1 = 0.5 * 20.0 + 0.5 * 10.0 = 15.0
+        # y_2 = 0.5 * 30.0 + 0.5 * 15.0 = 22.5
+        s = pd.Series([10.0, 20.0, 30.0])
+        res = qbs.ema(s, length=3)
+        pd.testing.assert_series_equal(res, pd.Series([10.0, 15.0, 22.5]))
+
+        # 2. Length = 1 test (alpha = 1.0, EMA equals original series)
+        res_len1 = qbs.ema(s, length=1)
+        pd.testing.assert_series_equal(res_len1, s)
+
+        # 3. Constant series test
+        const_s = pd.Series([5.0, 5.0, 5.0, 5.0])
+        res_const = qbs.ema(const_s, length=5)
+        pd.testing.assert_series_equal(res_const, const_s)
+
+        # 4. Empty series test
+        empty_s = pd.Series([], dtype=float)
+        res_empty = qbs.ema(empty_s, length=10)
+        self.assertTrue(res_empty.empty)
+
+        # 5. Series starting with NaN values test
+        nan_s = pd.Series([np.nan, 10.0, 20.0])
+        res_nan = qbs.ema(nan_s, length=3)
+        self.assertTrue(np.isnan(res_nan.iloc[0]))
+        self.assertEqual(res_nan.iloc[1], 10.0)
+        self.assertEqual(res_nan.iloc[2], 15.0)
+
     def test_load_bars_full(self):
         with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
             db_path = tmp.name
