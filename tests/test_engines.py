@@ -260,6 +260,52 @@ class TestCoreEngines(unittest.TestCase):
         self.assertFalse(bars.empty)
         self.assertIn("close", bars.columns)
 
+    def test_calculate_trade_risk(self):
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+            db_path = tmp.name
+
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE symbols (symbol TEXT PRIMARY KEY, industry TEXT, enabled INTEGER)")
+        conn.commit()
+        conn.close()
+
+        engine = DataEngine(db_path=db_path)
+
+        # 1. Default parameters
+        res = engine.calculate_trade_risk()
+        self.assertEqual(res["capital"], 500000.0)
+        self.assertEqual(res["risk_pct"], 2.0)
+        self.assertEqual(res["risk_amount"], 10000.0)
+        self.assertEqual(res["entry"], 100.0)
+        self.assertEqual(res["stop_loss"], 95.0)
+        self.assertEqual(res["risk_per_share"], 5.0)
+        self.assertEqual(res["shares"], 2000)
+        self.assertEqual(res["total_cost"], 200000.0)
+        self.assertEqual(res["target1"], 107.5)
+        self.assertEqual(res["target2"], 112.5)
+        self.assertIn("net_profit_t1", res)
+        self.assertIn("net_profit_t2", res)
+        self.assertIn("net_loss_sl", res)
+
+        # 2. Fallback risk per share when entry == stop_loss
+        res_zero_risk = engine.calculate_trade_risk(entry=100.0, stop_loss=100.0)
+        self.assertEqual(res_zero_risk["risk_per_share"], 5.0)
+
+        # 3. Input clamping tests (capital < 1000, risk_pct outside [0.1, 100], entry < 0.1)
+        res_clamped = engine.calculate_trade_risk(capital=500.0, risk_pct=-5.0, entry=0.01)
+        self.assertEqual(res_clamped["capital"], 1000.0)
+        self.assertEqual(res_clamped["risk_pct"], 0.1)
+        self.assertEqual(res_clamped["entry"], 0.1)
+
+        res_max_risk = engine.calculate_trade_risk(risk_pct=150.0)
+        self.assertEqual(res_max_risk["risk_pct"], 100.0)
+
+        # 4. Custom fee_pct
+        res_fee = engine.calculate_trade_risk(capital=100000.0, risk_pct=1.0, entry=50.0, stop_loss=45.0, fee_pct=2.0)
+        self.assertEqual(res_fee["shares"], 200)
+        self.assertEqual(res_fee["total_cost"], 10000.0)
+        self.assertEqual(res_fee["roundtrip_fee"], 200.0)
+
 
 if __name__ == "__main__":
     unittest.main()
