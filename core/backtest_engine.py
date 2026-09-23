@@ -331,6 +331,67 @@ class BacktestEngine:
         }
 
     @classmethod
+    def optimize_strategy_parameters(
+        cls,
+        df: pd.DataFrame,
+        starting_capital: float = 1_000_000.0,
+        strategy_mode: str = "QQE / Momentum",
+        param_grid: Optional[Dict[str, List[Any]]] = None
+    ) -> List[Dict[str, Any]]:
+        """Run grid search optimization over strategy risk/reward parameters (Target R:R, ATR Stop Multipliers)."""
+        if df.empty or len(df) < 50:
+            return []
+
+        if param_grid is None:
+            param_grid = {
+                "target1_rr": [1.0, 1.5, 2.0],
+                "target2_rr": [2.0, 2.5, 3.0],
+                "atr_stop_multiplier": [1.0, 1.5, 2.0],
+                "risk_per_trade_pct": [1.5, 2.0]
+            }
+
+        t1_list = param_grid.get("target1_rr", [1.5])
+        t2_list = param_grid.get("target2_rr", [2.5])
+        atr_list = param_grid.get("atr_stop_multiplier", [1.5])
+        risk_list = param_grid.get("risk_per_trade_pct", [2.0])
+
+        results: List[Dict[str, Any]] = []
+
+        for t1 in t1_list:
+            for t2 in t2_list:
+                if t2 <= t1:
+                    continue
+                for atr_m in atr_list:
+                    for r_pct in risk_list:
+                        bt_res = cls.run_spot_backtest(
+                            df=df,
+                            starting_capital=starting_capital,
+                            risk_per_trade_pct=r_pct,
+                            target1_rr=t1,
+                            target2_rr=t2,
+                            atr_stop_multiplier=atr_m,
+                            strategy_mode=strategy_mode
+                        )
+
+                        results.append({
+                            "target1_rr": t1,
+                            "target2_rr": t2,
+                            "atr_stop_multiplier": atr_m,
+                            "risk_per_trade_pct": r_pct,
+                            "return_pct": bt_res.get("return_pct", 0.0),
+                            "net_profit_lkr": bt_res.get("net_profit_lkr", 0.0),
+                            "win_rate_pct": bt_res.get("win_rate_pct", 0.0),
+                            "profit_factor": bt_res.get("profit_factor", 0.0),
+                            "max_drawdown_pct": bt_res.get("max_drawdown_pct", 0.0),
+                            "sharpe_ratio": bt_res.get("sharpe_ratio", 0.0),
+                            "total_trades": bt_res.get("total_trades", 0)
+                        })
+
+        # Sort results by Sharpe Ratio descending, then Return % descending
+        results.sort(key=lambda x: (x["sharpe_ratio"], x["return_pct"]), reverse=True)
+        return results
+
+    @classmethod
     def run_walk_forward_validation(
         cls,
         df: pd.DataFrame,

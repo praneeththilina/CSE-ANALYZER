@@ -523,6 +523,37 @@ class TechnicalEngine:
             "dist_52w_low_pct": dist_low
         }
 
+    @staticmethod
+    def compute_ichimoku_cloud(df: pd.DataFrame, tenkan_period: int = 9, kijun_period: int = 26, senkou_b_period: int = 52) -> pd.DataFrame:
+        """Compute Ichimoku Kinko Hyo Cloud indicator components."""
+        df = df.copy()
+        high = df["high"]
+        low = df["low"]
+        close = df["close"]
+
+        # Tenkan-sen (Conversion Line)
+        tenkan_high = high.rolling(window=tenkan_period, min_periods=3).max()
+        tenkan_low = low.rolling(window=tenkan_period, min_periods=3).min()
+        df["ichimoku_tenkan"] = (tenkan_high + tenkan_low) / 2.0
+
+        # Kijun-sen (Base Line)
+        kijun_high = high.rolling(window=kijun_period, min_periods=5).max()
+        kijun_low = low.rolling(window=kijun_period, min_periods=5).min()
+        df["ichimoku_kijun"] = (kijun_high + kijun_low) / 2.0
+
+        # Senkou Span A (Leading Span A)
+        df["ichimoku_span_a"] = ((df["ichimoku_tenkan"] + df["ichimoku_kijun"]) / 2.0).shift(kijun_period)
+
+        # Senkou Span B (Leading Span B)
+        senkou_b_high = high.rolling(window=senkou_b_period, min_periods=10).max()
+        senkou_b_low = low.rolling(window=senkou_b_period, min_periods=10).min()
+        df["ichimoku_span_b"] = ((senkou_b_high + senkou_b_low) / 2.0).shift(kijun_period)
+
+        # Chikou Span (Lagging Span)
+        df["ichimoku_chikou"] = close.shift(-kijun_period)
+
+        return df
+
     @classmethod
     def analyze_full_technical_suite(cls, df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, Any]]:
         """Run the comprehensive technical engine and return enriched DataFrame and summary metrics."""
@@ -536,6 +567,7 @@ class TechnicalEngine:
         df = cls.compute_atr_and_volatility(df)
         df = cls.compute_stochastic_and_adx(df)
         df = cls.compute_volume_analysis(df)
+        df = cls.compute_ichimoku_cloud(df)
         df = cls.recognize_candlestick_patterns(df)
 
         sr_levels = cls.detect_support_resistance(df)

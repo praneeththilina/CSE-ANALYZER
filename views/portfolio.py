@@ -85,20 +85,22 @@ class PortfolioTab(ttk.Frame):
         # ── Summary Cards (Feature 48) ───────────────────────────────────
         cards_frame = ttk.Frame(self)
         cards_frame.pack(fill="x", pady=(0, 8))
-        cards_frame.columnconfigure(tuple(range(6)), weight=1, uniform="card")
+        cards_frame.columnconfigure(tuple(range(7)), weight=1, uniform="card")
 
         self.card_cost = InfoCard(cards_frame, "Total Cost Basis", "—", accent_color="#0284c7", icon="💼")
-        self.card_cost.grid(row=0, column=0, padx=3, sticky="nsew")
+        self.card_cost.grid(row=0, column=0, padx=2, sticky="nsew")
         self.card_value = InfoCard(cards_frame, "Current Value", "—", accent_color="#4f46e5", icon="📈")
-        self.card_value.grid(row=0, column=1, padx=3, sticky="nsew")
+        self.card_value.grid(row=0, column=1, padx=2, sticky="nsew")
         self.card_pnl = InfoCard(cards_frame, "Total P&L", "—", accent_color="#059669", icon="💵")
-        self.card_pnl.grid(row=0, column=2, padx=3, sticky="nsew")
+        self.card_pnl.grid(row=0, column=2, padx=2, sticky="nsew")
         self.card_pnl_pct = InfoCard(cards_frame, "P&L %", "—", accent_color="#059669", icon="📊")
-        self.card_pnl_pct.grid(row=0, column=3, padx=3, sticky="nsew")
+        self.card_pnl_pct.grid(row=0, column=3, padx=2, sticky="nsew")
+        self.card_alpha = InfoCard(cards_frame, "Portfolio Alpha", "—", accent_color="#059669", icon="⚡")
+        self.card_alpha.grid(row=0, column=4, padx=2, sticky="nsew")
         self.card_var = InfoCard(cards_frame, "Daily VaR (95%)", "—", accent_color="#e11d48", icon="🛡️")
-        self.card_var.grid(row=0, column=4, padx=3, sticky="nsew")
+        self.card_var.grid(row=0, column=5, padx=2, sticky="nsew")
         self.card_beta = InfoCard(cards_frame, "Portfolio Beta", "—", accent_color="#d97706", icon="⚖️")
-        self.card_beta.grid(row=0, column=5, padx=3, sticky="nsew")
+        self.card_beta.grid(row=0, column=6, padx=2, sticky="nsew")
 
         # Risk & Concentration Warnings Banner
         self.lbl_risk_warnings = ttk.Label(self, text="", font=("Segoe UI", 9), foreground="#b91c1c")
@@ -236,6 +238,10 @@ class PortfolioTab(ttk.Frame):
         risk_analysis = self.app.engine.evaluate_portfolio_risk(positions, cash=0.0)
         var_val = risk_analysis.get("var_95_daily_lkr", 0.0)
         var_pct = risk_analysis.get("var_95_pct", 0.0)
+        alpha_val = risk_analysis.get("portfolio_alpha_pct", 0.0)
+        alpha_color = WIN11_GREEN if alpha_val >= 0 else WIN11_RED
+
+        self.card_alpha.set(f"{alpha_val:+.2f}% vs ASPI", color=alpha_color)
         self.card_var.set(f"{fmt_currency(var_val)} ({var_pct:.1f}%)")
         self.card_beta.set(f"{risk_analysis.get('portfolio_beta', 1.0):.2f}")
 

@@ -91,6 +91,10 @@ class ChartTab(ttk.Frame):
         ttk.Checkbutton(self.tv_toolbar, text="Signals", variable=self.show_signals_var,
                         command=self._on_load).pack(side="left", padx=2)
 
+        self.show_ichimoku_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(self.tv_toolbar, text="Ichimoku", variable=self.show_ichimoku_var,
+                        command=self._on_load).pack(side="left", padx=2)
+
         self.show_sr_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(self.tv_toolbar, text="S/R", variable=self.show_sr_var,
                         command=self._on_toggle_levels).pack(side="left", padx=2)
@@ -488,6 +492,18 @@ class ChartTab(ttk.Frame):
             cum_vol = ohlcv["volume"].cumsum().replace(0, np.nan)
             vwap = (tp * ohlcv["volume"]).cumsum() / cum_vol
             addplots.append(mpf.make_addplot(vwap.fillna(ohlcv["close"]), color="#ec4899", width=1.2, linestyle="-"))
+
+        # Ichimoku Cloud overlay
+        if getattr(self, "show_ichimoku_var", None) and self.show_ichimoku_var.get() and len(ohlcv) > 26:
+            tenkan = (ohlcv["high"].rolling(9).max() + ohlcv["low"].rolling(9).min()) / 2.0
+            kijun = (ohlcv["high"].rolling(26).max() + ohlcv["low"].rolling(26).min()) / 2.0
+            span_a = ((tenkan + kijun) / 2.0).shift(26)
+            span_b = ((ohlcv["high"].rolling(52).max() + ohlcv["low"].rolling(52).min()) / 2.0).shift(26)
+
+            addplots.append(mpf.make_addplot(tenkan, color="#2563eb", width=1.1, linestyle="-"))
+            addplots.append(mpf.make_addplot(kijun, color="#dc2626", width=1.1, linestyle="-"))
+            addplots.append(mpf.make_addplot(span_a, color="#16a34a", width=1.0, linestyle="--"))
+            addplots.append(mpf.make_addplot(span_b, color="#d97706", width=1.0, linestyle="--"))
 
         # Spot Equity BUY & EXIT Signal Markers
         if "signals" in data and self.show_signals_var.get():

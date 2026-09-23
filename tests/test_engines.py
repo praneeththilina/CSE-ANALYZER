@@ -40,10 +40,22 @@ class TestCoreEngines(unittest.TestCase):
         self.assertIn("atr", df_res.columns)
         self.assertIn("stoch_k", df_res.columns)
         self.assertIn("obv", df_res.columns)
+        self.assertIn("ichimoku_tenkan", df_res.columns)
+        self.assertIn("ichimoku_kijun", df_res.columns)
+        self.assertIn("ichimoku_span_a", df_res.columns)
+        self.assertIn("ichimoku_span_b", df_res.columns)
         self.assertIn("pat_hammer", df_res.columns)
         self.assertIn("regime", summary)
         self.assertIn("support_resistance", summary)
         self.assertIn("pivot_points", summary)
+
+    def test_ichimoku_cloud(self):
+        df_ich = TechnicalEngine.compute_ichimoku_cloud(self.df)
+        self.assertIn("ichimoku_tenkan", df_ich.columns)
+        self.assertIn("ichimoku_kijun", df_ich.columns)
+        self.assertIn("ichimoku_span_a", df_ich.columns)
+        self.assertIn("ichimoku_span_b", df_ich.columns)
+        self.assertIn("ichimoku_chikou", df_ich.columns)
 
     def test_pivot_points(self):
         pivots_std = TechnicalEngine.compute_pivot_points(self.df, method="standard")
@@ -83,6 +95,12 @@ class TestCoreEngines(unittest.TestCase):
         res_rsi = BacktestEngine.run_spot_backtest(self.df, starting_capital=1_000_000.0, strategy_mode="RSI Mean Reversion")
         self.assertIn("return_pct", res_rsi)
 
+        opt_res = BacktestEngine.optimize_strategy_parameters(self.df)
+        self.assertIsInstance(opt_res, list)
+        if opt_res:
+            self.assertIn("target1_rr", opt_res[0])
+            self.assertIn("sharpe_ratio", opt_res[0])
+
         wf_res = BacktestEngine.run_walk_forward_validation(self.df, window_size=50, out_of_sample_size=20)
         self.assertIn("folds", wf_res)
         self.assertIn("avg_out_of_sample_return_pct", wf_res)
@@ -113,6 +131,13 @@ class TestCoreEngines(unittest.TestCase):
         )
         self.assertIn("shares_to_buy", pos_size)
         self.assertGreater(pos_size["shares_to_buy"], 0)
+
+        risk_res = RiskScorecardEngine.evaluate_portfolio_risk(
+            holdings=[{"symbol": "COMB.N0000", "current_price": 120.0, "qty": 1000, "pnl": 10000, "cost_basis": 110000}],
+            portfolio_cash=50000.0,
+            benchmark_aspi_return_pct=12.0
+        )
+        self.assertIn("portfolio_alpha_pct", risk_res)
 
     def test_portfolio_rebalancing(self):
         holdings = [
