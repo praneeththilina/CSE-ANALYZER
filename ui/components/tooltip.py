@@ -20,9 +20,9 @@ class ToolTip:
         self._after_id = None
         self._tip_window: Optional[tk.Toplevel] = None
 
-        widget.bind("<Enter>", self._on_enter)
-        widget.bind("<Leave>", self._on_leave)
-        widget.bind("<ButtonPress>", self._on_leave)
+        widget.bind("<Enter>", self._on_enter, add="+")
+        widget.bind("<Leave>", self._on_leave, add="+")
+        widget.bind("<ButtonPress>", self._on_leave, add="+")
 
     def _on_enter(self, event=None):
         self._schedule()
