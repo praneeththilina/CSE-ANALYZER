@@ -110,6 +110,77 @@ class TestCoreEngines(unittest.TestCase):
         self.assertIn("f_score", profile["piotroski"])
         self.assertIn("z_score", profile["altman_z"])
 
+    def test_compute_altman_z_score(self):
+        # Default parameter fallback
+        default_res = FundamentalEngine.compute_altman_z_score({})
+        self.assertEqual(default_res["z_score"], 4.19)
+        self.assertEqual(default_res["zone"], "Safe Zone (Low Insolvency Risk)")
+        self.assertEqual(default_res["color"], "#10B981")
+
+        # Safe zone (z >= 2.6)
+        safe_data = {
+            "working_capital_to_assets": 0.3,
+            "retained_earnings_to_assets": 0.4,
+            "ebit_to_assets": 0.2,
+            "equity_to_liabilities": 2.0
+        }
+        safe_res = FundamentalEngine.compute_altman_z_score(safe_data)
+        self.assertEqual(safe_res["z_score"], 6.72)
+        self.assertEqual(safe_res["zone"], "Safe Zone (Low Insolvency Risk)")
+        self.assertEqual(safe_res["color"], "#10B981")
+
+        # Grey zone (1.1 <= z < 2.6)
+        grey_data = {
+            "working_capital_to_assets": 0.1,
+            "retained_earnings_to_assets": 0.1,
+            "ebit_to_assets": 0.05,
+            "equity_to_liabilities": 0.5
+        }
+        grey_res = FundamentalEngine.compute_altman_z_score(grey_data)
+        self.assertEqual(grey_res["z_score"], 1.84)
+        self.assertEqual(grey_res["zone"], "Grey Zone (Moderate Risk)")
+        self.assertEqual(grey_res["color"], "#F59E0B")
+
+        # Distress zone (z < 1.1)
+        distress_data = {
+            "working_capital_to_assets": -0.1,
+            "retained_earnings_to_assets": -0.2,
+            "ebit_to_assets": -0.05,
+            "equity_to_liabilities": 0.1
+        }
+        distress_res = FundamentalEngine.compute_altman_z_score(distress_data)
+        self.assertEqual(distress_res["z_score"], -1.54)
+        self.assertEqual(distress_res["zone"], "Distress Zone (High Credit Risk)")
+        self.assertEqual(distress_res["color"], "#EF4444")
+
+        # Boundary checks
+        res_2_60 = FundamentalEngine.compute_altman_z_score({
+            "working_capital_to_assets": 0,
+            "retained_earnings_to_assets": 0,
+            "ebit_to_assets": 0,
+            "equity_to_liabilities": 2.60 / 1.05
+        })
+        self.assertEqual(res_2_60["z_score"], 2.60)
+        self.assertEqual(res_2_60["zone"], "Safe Zone (Low Insolvency Risk)")
+
+        res_1_10 = FundamentalEngine.compute_altman_z_score({
+            "working_capital_to_assets": 0,
+            "retained_earnings_to_assets": 0,
+            "ebit_to_assets": 0,
+            "equity_to_liabilities": 1.10 / 1.05
+        })
+        self.assertEqual(res_1_10["z_score"], 1.10)
+        self.assertEqual(res_1_10["zone"], "Grey Zone (Moderate Risk)")
+
+        res_1_09 = FundamentalEngine.compute_altman_z_score({
+            "working_capital_to_assets": 0,
+            "retained_earnings_to_assets": 0,
+            "ebit_to_assets": 0,
+            "equity_to_liabilities": 1.09 / 1.05
+        })
+        self.assertEqual(res_1_09["z_score"], 1.09)
+        self.assertEqual(res_1_09["zone"], "Distress Zone (High Credit Risk)")
+
     def test_backtest_engine(self):
         res = BacktestEngine.run_spot_backtest(self.df, starting_capital=1_000_000.0, strategy_mode="QQE / Momentum")
         self.assertIn("return_pct", res)
