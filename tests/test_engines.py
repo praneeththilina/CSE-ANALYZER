@@ -260,6 +260,67 @@ class TestCoreEngines(unittest.TestCase):
         self.assertFalse(bars.empty)
         self.assertIn("close", bars.columns)
 
+    def test_compute_52w_extremes(self):
+        # 1. Empty DataFrame
+        empty_df = pd.DataFrame(columns=["close", "high", "low"])
+        res_empty = DataEngine.compute_52w_extremes(empty_df)
+        self.assertEqual(res_empty["high_52w"], 0.0)
+        self.assertEqual(res_empty["low_52w"], 0.0)
+        self.assertEqual(res_empty["dist_high_pct"], 0.0)
+        self.assertEqual(res_empty["dist_low_pct"], 0.0)
+        self.assertFalse(res_empty["near_breakout"])
+        self.assertEqual(res_empty["dist_high_str"], "0.0%")
+
+        # 2. Insufficient rows (< 10)
+        dates = pd.date_range("2023-01-01", periods=5, freq="D")
+        short_df = pd.DataFrame({
+            "close": [100.0] * 5,
+            "high": [105.0] * 5,
+            "low": [95.0] * 5,
+        }, index=dates)
+        res_short = DataEngine.compute_52w_extremes(short_df)
+        self.assertEqual(res_short["high_52w"], 0.0)
+        self.assertFalse(res_short["near_breakout"])
+
+        # 3. Normal DataFrame, NOT near breakout (dist_high_pct < -5%)
+        dates = pd.date_range("2023-01-01", periods=20, freq="D")
+        closes = [100.0] * 19 + [80.0]  # Last close 80, high 100 -> -20%
+        highs = [100.0] * 20
+        lows = [50.0] * 20
+        normal_df = pd.DataFrame({"close": closes, "high": highs, "low": lows}, index=dates)
+        res_normal = DataEngine.compute_52w_extremes(normal_df)
+        self.assertEqual(res_normal["high_52w"], 100.0)
+        self.assertEqual(res_normal["low_52w"], 50.0)
+        self.assertEqual(res_normal["dist_high_pct"], -20.0)
+        self.assertEqual(res_normal["dist_low_pct"], 60.0)
+        self.assertFalse(res_normal["near_breakout"])
+        self.assertEqual(res_normal["dist_high_str"], "-20.0%")
+
+        # 4. Normal DataFrame, IS near breakout (dist_high_pct >= -5%)
+        closes_near = [100.0] * 19 + [98.0]  # Last close 98, high 100 -> -2%
+        near_df = pd.DataFrame({"close": closes_near, "high": highs, "low": lows}, index=dates)
+        res_near = DataEngine.compute_52w_extremes(near_df)
+        self.assertEqual(res_near["dist_high_pct"], -2.0)
+        self.assertTrue(res_near["near_breakout"])
+        self.assertIn("🔥", res_near["dist_high_str"])
+
+        # 5. Lookback window (> 250 bars)
+        dates_long = pd.date_range("2022-01-01", periods=300, freq="D")
+        # Oldest 50 bars have high 200, but recent 250 bars have high 100
+        highs_long = [200.0] * 50 + [100.0] * 250
+        lows_long = [10.0] * 50 + [50.0] * 250
+        closes_long = [90.0] * 300
+        long_df = pd.DataFrame({"close": closes_long, "high": highs_long, "low": lows_long}, index=dates_long)
+        res_long = DataEngine.compute_52w_extremes(long_df)
+        self.assertEqual(res_long["high_52w"], 100.0)  # Sliced to last 250
+        self.assertEqual(res_long["low_52w"], 50.0)
+
+        # 6. Zero high edge case
+        zero_high_df = pd.DataFrame({"close": [0.0] * 15, "high": [0.0] * 15, "low": [0.0] * 15}, index=pd.date_range("2023-01-01", periods=15))
+        res_zero = DataEngine.compute_52w_extremes(zero_high_df)
+        self.assertEqual(res_zero["dist_high_pct"], 0.0)
+        self.assertEqual(res_zero["dist_low_pct"], 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()
