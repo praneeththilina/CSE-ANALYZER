@@ -260,6 +260,87 @@ class TestCoreEngines(unittest.TestCase):
         self.assertFalse(bars.empty)
         self.assertIn("close", bars.columns)
 
+    def test_compute_weekly_trend(self):
+        # 1. Empty DataFrame
+        empty_df = pd.DataFrame()
+        res = DataEngine.compute_weekly_trend(empty_df)
+        self.assertTrue(res["weekly_bullish"])
+        self.assertEqual(res["weekly_text"], "▲ Bullish")
+
+        # 2. DataFrame with fewer than 25 bars
+        short_dates = pd.date_range("2023-01-01", periods=20, freq="D")
+        short_df = pd.DataFrame({
+            "open": 100.0,
+            "high": 105.0,
+            "low": 95.0,
+            "close": 100.0,
+            "volume": 1000
+        }, index=short_dates)
+        res = DataEngine.compute_weekly_trend(short_df)
+        self.assertTrue(res["weekly_bullish"])
+        self.assertEqual(res["weekly_text"], "▲ Bullish")
+
+        # 3. DataFrame with >=25 daily bars but < 5 resampled weekly bars
+        # 30 calendar days ~ 4-5 weeks, so let's use 28 daily bars spanning 28 days
+        dates_few_weeks = pd.date_range("2023-01-01", periods=28, freq="D")
+        few_weeks_df = pd.DataFrame({
+            "open": 100.0,
+            "high": 105.0,
+            "low": 95.0,
+            "close": 100.0,
+            "volume": 1000
+        }, index=dates_few_weeks)
+        # Note: if weekly resample produces < 5 weeks
+        # compute_weekly_trend checks len(df_w) < 5 and returns default
+        # Let's verify with 25 days spanning only 3.5 weeks
+        dates_3weeks = pd.date_range("2023-01-01", periods=25, freq="D")
+        df_3weeks = pd.DataFrame({
+            "open": 100.0,
+            "high": 105.0,
+            "low": 95.0,
+            "close": 100.0,
+            "volume": 1000
+        }, index=dates_3weeks)
+        res = DataEngine.compute_weekly_trend(df_3weeks)
+        self.assertTrue(res["weekly_bullish"])
+        self.assertEqual(res["weekly_text"], "▲ Bullish")
+
+        # 4. Bullish weekly trend (uptrending closes)
+        dates_bull = pd.date_range("2023-01-01", periods=200, freq="D")
+        closes_bull = np.linspace(100.0, 200.0, 200)
+        df_bull = pd.DataFrame({
+            "open": closes_bull - 1,
+            "high": closes_bull + 2,
+            "low": closes_bull - 2,
+            "close": closes_bull,
+            "volume": 1000
+        }, index=dates_bull)
+        res_bull = DataEngine.compute_weekly_trend(df_bull)
+        self.assertTrue(res_bull["weekly_bullish"])
+        self.assertEqual(res_bull["weekly_text"], "▲ Bullish")
+        self.assertIn("weekly_ema", res_bull)
+
+        # 5. Bearish weekly trend (downtrending closes)
+        dates_bear = pd.date_range("2023-01-01", periods=200, freq="D")
+        closes_bear = np.linspace(200.0, 100.0, 200)
+        df_bear = pd.DataFrame({
+            "open": closes_bear + 1,
+            "high": closes_bear + 2,
+            "low": closes_bear - 2,
+            "close": closes_bear,
+            "volume": 1000
+        }, index=dates_bear)
+        res_bear = DataEngine.compute_weekly_trend(df_bear)
+        self.assertFalse(res_bear["weekly_bullish"])
+        self.assertEqual(res_bear["weekly_text"], "▼ Bearish")
+        self.assertIn("weekly_ema", res_bear)
+
+        # 6. Exception handling (invalid index / columns)
+        df_invalid = pd.DataFrame({"close": [100, 101, 102]})
+        res_err = DataEngine.compute_weekly_trend(df_invalid)
+        self.assertTrue(res_err["weekly_bullish"])
+        self.assertEqual(res_err["weekly_text"], "▲ Bullish")
+
 
 if __name__ == "__main__":
     unittest.main()
