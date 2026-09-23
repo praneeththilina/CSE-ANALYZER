@@ -9,7 +9,7 @@ Backtesting and Validation Engine covering Features 44, 45, and 47:
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 import numpy as np
 import pandas as pd
 
