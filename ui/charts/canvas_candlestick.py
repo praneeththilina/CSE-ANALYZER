@@ -6,7 +6,6 @@ crosshair with dynamic OHLCV readout, indicator overlays, and trade levels.
 """
 from __future__ import annotations
 
-import math
 import tkinter as tk
 from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
