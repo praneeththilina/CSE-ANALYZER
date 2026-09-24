@@ -62,6 +62,8 @@ class SearchBox(tk.Frame):
 
         self.entry.bind("<KeyRelease>", self._on_key_release)
         self.entry.bind("<Return>", self._on_enter)
+        self.entry.bind("<Down>", self._on_arrow_down)
+        self.entry.bind("<Escape>", self._on_escape)
         self.entry.bind("<FocusIn>", self._on_focus_in)
         self.entry.bind("<FocusOut>", self._on_focus_out)
 
@@ -118,6 +120,7 @@ class SearchBox(tk.Frame):
             self._listbox.pack(fill="both", expand=True)
             self._listbox.bind("<Button-1>", self._on_listbox_click)
             self._listbox.bind("<Return>", self._on_listbox_enter)
+            self._listbox.bind("<Escape>", self._on_listbox_escape)
 
         self._listbox.delete(0, "end")
         for m in matches:
@@ -147,6 +150,25 @@ class SearchBox(tk.Frame):
         if cur:
             item = self._listbox.get(cur[0]).strip()
             self._select_item(item)
+
+    def _on_arrow_down(self, event=None):
+        if self._popup and hasattr(self, "_listbox") and self._listbox.size() > 0:
+            self._listbox.focus_set()
+            if not self._listbox.curselection():
+                self._listbox.selection_clear(0, "end")
+                self._listbox.selection_set(0)
+                self._listbox.activate(0)
+            return "break"
+
+    def _on_escape(self, event=None):
+        if self._popup:
+            self._close_popup()
+            return "break"
+
+    def _on_listbox_escape(self, event=None):
+        self._close_popup()
+        self.entry.focus_set()
+        return "break"
 
     def _on_enter(self, _):
         if self._popup and self._listbox.size() > 0:
