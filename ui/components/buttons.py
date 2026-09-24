@@ -46,8 +46,8 @@ class PrimaryButton(tk.Button):
             **kwargs
         )
 
-        self.bind("<Enter>", self._on_enter)
-        self.bind("<Leave>", self._on_leave)
+        self.bind("<Enter>", self._on_enter, add="+")
+        self.bind("<Leave>", self._on_leave, add="+")
         ThemeManager.register_listener(self._on_theme_change)
 
     def _on_enter(self, _):
