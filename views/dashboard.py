@@ -84,6 +84,9 @@ class DashboardTab(ttk.Frame):
         self.card_forex = InfoCard(macro_ribbon, "USD/LKR & T-Bills", "LKR 302.50 • 12M 9.85%", accent_color="#f59e0b", icon="💱")
         self.card_forex.grid(row=0, column=3, padx=3, sticky="nsew")
 
+        # ── Everyday New Feature: Daily Stock Spotlight & Insight ──────────
+        self._build_daily_feature_section()
+
         # ── Main content: Gainers/Losers + Recent Signals ───────────────
         content = ttk.Frame(self)
         content.pack(fill="both", expand=True)
@@ -148,13 +151,128 @@ class DashboardTab(ttk.Frame):
         self.tree_signals.tag_configure("buy", foreground=WIN11_GREEN)
         self.tree_signals.tag_configure("exit", foreground=WIN11_RED)
 
+    # ── Everyday New Feature Banner Builder ─────────────────────────────
+
+    def _build_daily_feature_section(self):
+        feature_frame = ttk.LabelFrame(self, text=" 🌟 Everyday New Feature: Daily Stock Spotlight & Insight ", padding=10)
+        feature_frame.pack(fill="x", pady=(0, 12))
+
+        f_container = ttk.Frame(feature_frame)
+        f_container.pack(fill="x", expand=True)
+
+        # Left Column: Symbol & Stock Badge Info
+        self.f_left = ttk.Frame(f_container)
+        self.f_left.pack(side="left", fill="y", padx=(0, 16))
+
+        self.lbl_f_badge = ttk.Label(self.f_left, text="FEATURED TODAY", font=("Segoe UI", 9, "bold"), foreground="#0284c7")
+        self.lbl_f_badge.pack(anchor="w")
+
+        self.lbl_f_sym = ttk.Label(self.f_left, text="—", font=("Segoe UI", 15, "bold"))
+        self.lbl_f_sym.pack(anchor="w")
+
+        self.lbl_f_name = ttk.Label(self.f_left, text="—", font=("Segoe UI", 9))
+        self.lbl_f_name.pack(anchor="w")
+
+        self.lbl_f_price = ttk.Label(self.f_left, text="—", font=("Segoe UI", 12, "bold"), foreground="#059669")
+        self.lbl_f_price.pack(anchor="w", pady=(2, 0))
+
+        # Center Column: Trade Setup Cards Grid
+        self.f_center = ttk.Frame(f_container)
+        self.f_center.pack(side="left", fill="both", expand=True, padx=(0, 16))
+        self.f_center.columnconfigure((0, 1, 2), weight=1, uniform="f_card")
+
+        self.card_f_score = InfoCard(self.f_center, "Composite Rating", "—", accent_color="#7c3aed", icon="⭐")
+        self.card_f_score.grid(row=0, column=0, padx=2, pady=2, sticky="nsew")
+
+        self.card_f_rec = InfoCard(self.f_center, "Recommendation", "—", accent_color="#059669", icon="🎯")
+        self.card_f_rec.grid(row=0, column=1, padx=2, pady=2, sticky="nsew")
+
+        self.card_f_target = InfoCard(self.f_center, "Target Price", "—", accent_color="#0284c7", icon="🏆")
+        self.card_f_target.grid(row=0, column=2, padx=2, pady=2, sticky="nsew")
+
+        self.card_f_stop = InfoCard(self.f_center, "Stop Loss", "—", accent_color="#e11d48", icon="🛡️")
+        self.card_f_stop.grid(row=1, column=0, padx=2, pady=2, sticky="nsew")
+
+        self.card_f_edge = InfoCard(self.f_center, "Signal Edge", "—", accent_color="#10b981", icon="⚡")
+        self.card_f_edge.grid(row=1, column=1, padx=2, pady=2, sticky="nsew")
+
+        self.card_f_trend = InfoCard(self.f_center, "Market Trend", "—", accent_color="#d97706", icon="📈")
+        self.card_f_trend.grid(row=1, column=2, padx=2, pady=2, sticky="nsew")
+
+        # Right Column: Narrative Box & Navigation Actions
+        self.f_right = ttk.Frame(f_container)
+        self.f_right.pack(side="right", fill="both")
+
+        self.lbl_f_insight = ttk.Label(
+            self.f_right, text="—", font=("Segoe UI", 9, "italic"),
+            wraplength=280, justify="left"
+        )
+        self.lbl_f_insight.pack(anchor="w", pady=(0, 6))
+
+        f_actions = ttk.Frame(self.f_right)
+        f_actions.pack(anchor="e")
+
+        ttk.Button(f_actions, text="📈 Chart", command=self._on_f_view_chart).pack(side="left", padx=2)
+        ttk.Button(f_actions, text="⭐ Watchlist", command=self._on_f_add_watchlist).pack(side="left", padx=2)
+        ttk.Button(f_actions, text="💼 Portfolio", command=self._on_f_add_portfolio).pack(side="left", padx=2)
+        ttk.Button(f_actions, text="🤖 AI Intel", command=self._on_f_ai_intel).pack(side="left", padx=2)
+
+    def _apply_daily_feature(self, feat: dict):
+        self._current_featured_symbol = feat.get("symbol", "")
+        self._current_featured_price = float(feat.get("price", 0.0))
+
+        self.lbl_f_badge.config(text=f"FEATURED TODAY • {feat.get('date', '')}")
+        self.lbl_f_sym.config(text=feat.get("symbol", "—"))
+        self.lbl_f_name.config(text=f"{feat.get('name', '')} ({feat.get('sector', '')})")
+        self.lbl_f_price.config(text=f"LKR {self._current_featured_price:.2f}")
+
+        score_str = f"{feat.get('composite_score', 0)} ({feat.get('grade', 'B')})"
+        self.card_f_score.set(score_str)
+
+        rec_str = feat.get("recommendation", "WATCH")
+        self.card_f_rec.set(rec_str, color=WIN11_GREEN if "BUY" in rec_str else WIN11_ACCENT)
+
+        self.card_f_target.set(f"LKR {feat.get('target_price', 0.0):.2f}")
+        self.card_f_stop.set(f"LKR {feat.get('stop_loss', 0.0):.2f}", color=WIN11_RED)
+        self.card_f_edge.set(str(feat.get("signal_edge", "—")))
+
+        metrics = feat.get("metrics", {})
+        self.card_f_trend.set(str(metrics.get("Trend", "—")))
+
+        self.lbl_f_insight.config(text=feat.get("highlight_reason", "—"))
+
+    # Actions for Daily Feature Buttons
+    def _on_f_view_chart(self):
+        sym = getattr(self, "_current_featured_symbol", None)
+        if sym:
+            self.app.switch_to_chart(sym)
+
+    def _on_f_add_watchlist(self):
+        sym = getattr(self, "_current_featured_symbol", None)
+        if sym:
+            self.app.switch_to_watchlist(sym)
+
+    def _on_f_add_portfolio(self):
+        sym = getattr(self, "_current_featured_symbol", None)
+        price = getattr(self, "_current_featured_price", 0.0)
+        if sym:
+            self.app.switch_to_portfolio(sym, price, 1000)
+
+    def _on_f_ai_intel(self):
+        sym = getattr(self, "_current_featured_symbol", None)
+        if sym:
+            self.app.switch_to_intel(sym)
+
     # ── Instant Synchronous Local DB Load ───────────────────────────────
 
     def _load_local_data(self):
-        """Immediately populate all 6 cards and all 3 tables synchronously from SQLite in ~20ms."""
+        """Immediately populate all cards, features, and tables synchronously from SQLite in ~20ms."""
         try:
             summary = self.app.engine.get_dashboard_summary()
             self._apply_summary(summary)
+
+            feat = self.app.engine.get_daily_featured_stock()
+            self._apply_daily_feature(feat)
 
             signals = self.app.engine.get_recent_signals(50)
             self._apply_signals(signals)
