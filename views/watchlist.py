@@ -193,11 +193,6 @@ class WatchlistTab(ttk.Frame):
         except Exception:
             pass
 
-    def on_tab_shown(self):
-        self._refresh_watchlist_names()
-        self._refresh_symbols_autocomplete()
-        self.load_data()
-
     def load_data(self):
         """Fetches items for the currently selected watchlist in a background thread."""
         lname = self.list_var.get()

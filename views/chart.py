@@ -667,6 +667,9 @@ class ChartTab(ttk.Frame):
         if event.xdata is None or self._chart_ohlcv is None or self._chart_ohlcv.empty:
             return
         try:
+            import math
+            if math.isnan(event.xdata):
+                return
             idx = int(round(event.xdata))
             if 0 <= idx < len(self._chart_ohlcv):
                 row = self._chart_ohlcv.iloc[idx]
@@ -757,9 +760,6 @@ class ChartTab(ttk.Frame):
         else:
             self.profile_card.pack_forget()
             self.btn_profile.config(bg="#eef2ff", fg="#3730a3", text="🏛️ Profile ▾")
-
-    def _on_toggle_profile(self):
-        self._toggle_profile()
 
     def _add_to_watchlist_dialog(self):
         """Displays dialog allowing user to add currently loaded stock to any watchlist."""

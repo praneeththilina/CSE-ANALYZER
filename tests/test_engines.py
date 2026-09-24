@@ -550,6 +550,44 @@ class TestCoreEngines(unittest.TestCase):
         self.assertEqual(res_zero["high_52w"], 0.0)
         self.assertEqual(res_zero["dist_high_pct"], 0.0)
 
+    def test_data_engine_trade_risk_and_quality(self):
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+            db_path = tmp.name
+
+        engine = DataEngine(db_path=db_path)
+
+        # 1. Trade Risk Calculation
+        risk_res = engine.calculate_trade_risk(
+            capital=500000.0,
+            risk_pct=2.0,
+            entry=100.0,
+            stop_loss=90.0,
+            fee_pct=1.12
+        )
+        self.assertEqual(risk_res["capital"], 500000.0)
+        self.assertEqual(risk_res["risk_amount"], 10000.0)
+        self.assertEqual(risk_res["shares"], 1000)
+        self.assertEqual(risk_res["total_cost"], 100000.0)
+        self.assertGreater(risk_res["roundtrip_fee"], 0.0)
+        self.assertEqual(risk_res["target1"], 115.0)
+
+        # 2. Data Cleaning and Quality Validation
+        df_dirty = pd.DataFrame({
+            "close": [100.0, 105.0, 200.0, 104.0, 108.0],  # index 2 is bad spike
+            "high": [102.0, 107.0, 205.0, 106.0, 110.0],
+            "low": [98.0, 103.0, 195.0, 102.0, 106.0],
+            "volume": [1000, 1200, 0, 1100, 1300]
+        }, index=pd.date_range("2023-01-01", periods=5, freq="D"))
+
+        df_cleaned = engine.clean_bars_data(df_dirty)
+        self.assertEqual(len(df_cleaned), 5)
+        # Verify bad spike at index 2 was smoothed
+        self.assertLess(df_cleaned.iloc[2]["close"], 180.0)
+
+        quality = engine.validate_data_quality("COMB.N0000", df_cleaned)
+        self.assertIn("status", quality)
+        self.assertIn("is_healthy", quality)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -791,7 +791,7 @@ class DataEngine:
         volume = df["volume"]
         c_last = float(close.iloc[-1])
         c_prev = float(close.iloc[-2]) if len(close) >= 2 else c_last
-        o_last = float(df["open"].iloc[-1]) if "open" in df else c_prev
+        o_last = float(df["open"].iloc[-1]) if ("open" in df and pd.notna(df["open"].iloc[-1])) else c_prev
 
         # EMAs: 20, 50, 200
         ema20 = close.ewm(span=min(20, len(close)), adjust=False).mean()
@@ -1973,7 +1973,8 @@ class DataEngine:
         # Flag and filter extreme bad ticks (> 50% jump in 1 bar that reverses immediately)
         if len(df) >= 3:
             ret = df["close"].pct_change()
-            bad_spike = (ret.abs() > 0.50) & (df["close"].pct_change(-1).abs() > 0.40) & (np.sign(ret) != np.sign(df["close"].pct_change(-1)))
+            ret_fwd = df["close"].pct_change().shift(-1)
+            bad_spike = (ret.abs() > 0.50) & (ret_fwd.abs() > 0.40) & (np.sign(ret) != np.sign(ret_fwd))
             if bad_spike.any():
                 df.loc[bad_spike, "close"] = (df["close"].shift(1) + df["close"].shift(-1)) / 2.0
 
