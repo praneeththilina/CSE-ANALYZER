@@ -8,11 +8,11 @@ so all elements appear simultaneously without pop-in or right-to-left lag.
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 from typing import TYPE_CHECKING
 
 from ui_utils import (
-    InfoCard, SortableTreeview, ThreadedTask,
+    InfoCard, SortableTreeview, ThreadedTask, ToolTip,
     fmt_currency, fmt_pct, fmt_volume,
     WIN11_BG, WIN11_GREEN, WIN11_RED, WIN11_ACCENT,
     FONT_TITLE, FONT_SECTION, FONT_BODY, FONT_CARD_VAL
@@ -26,6 +26,7 @@ class DashboardTab(ttk.Frame):
     def __init__(self, parent, app: MainApp):
         super().__init__(parent, padding=(16, 12))
         self.app = app
+        self._daily_feature_offset = 0
         self._build_ui()
         # Immediately populate cards, gainers, losers, and signals from DB
         self._load_local_data()
@@ -212,10 +213,29 @@ class DashboardTab(ttk.Frame):
         f_actions = ttk.Frame(self.f_right)
         f_actions.pack(anchor="e")
 
-        ttk.Button(f_actions, text="📈 Chart", command=self._on_f_view_chart).pack(side="left", padx=2)
-        ttk.Button(f_actions, text="⭐ Watchlist", command=self._on_f_add_watchlist).pack(side="left", padx=2)
-        ttk.Button(f_actions, text="💼 Portfolio", command=self._on_f_add_portfolio).pack(side="left", padx=2)
-        ttk.Button(f_actions, text="🤖 AI Intel", command=self._on_f_ai_intel).pack(side="left", padx=2)
+        btn_chart = ttk.Button(f_actions, text="📈 Chart", command=self._on_f_view_chart)
+        btn_chart.pack(side="left", padx=2)
+        ToolTip(btn_chart, "Open interactive chart for this stock")
+
+        btn_watch = ttk.Button(f_actions, text="⭐ Watchlist", command=self._on_f_add_watchlist)
+        btn_watch.pack(side="left", padx=2)
+        ToolTip(btn_watch, "Add featured stock to watchlist")
+
+        btn_port = ttk.Button(f_actions, text="💼 Portfolio", command=self._on_f_add_portfolio)
+        btn_port.pack(side="left", padx=2)
+        ToolTip(btn_port, "Add position to portfolio tracker")
+
+        btn_ai = ttk.Button(f_actions, text="🤖 AI Intel", command=self._on_f_ai_intel)
+        btn_ai.pack(side="left", padx=2)
+        ToolTip(btn_ai, "Generate Gemini AI analysis")
+
+        btn_next = ttk.Button(f_actions, text="🎲 Next Pick", command=self._on_f_next_pick)
+        btn_next.pack(side="left", padx=2)
+        ToolTip(btn_next, "Cycle to today's next featured stock pick")
+
+        btn_info = ttk.Button(f_actions, text="ℹ️ Info", command=self._on_f_info)
+        btn_info.pack(side="left", padx=2)
+        ToolTip(btn_info, "About Everyday New Feature methodology")
 
     def _apply_daily_feature(self, feat: dict):
         self._current_featured_symbol = feat.get("symbol", "")
@@ -262,6 +282,22 @@ class DashboardTab(ttk.Frame):
         sym = getattr(self, "_current_featured_symbol", None)
         if sym:
             self.app.switch_to_intel(sym)
+
+    def _on_f_next_pick(self):
+        self._daily_feature_offset += 1
+        feat = self.app.engine.get_daily_featured_stock(offset=self._daily_feature_offset)
+        self._apply_daily_feature(feat)
+        self.app.set_status(f"Featured Spotlight updated: {feat.get('symbol', '')}")
+
+    def _on_f_info(self):
+        msg = (
+            "🌟 Everyday New Feature: Daily Stock Spotlight & Insight\n\n"
+            "• Algorithmic Selection: Scans all 260+ CSE equities using daily technical and fundamental decision pipelines.\n"
+            "• Composite Rating: Combines momentum, volume surge, Piotroski F-score, and moving average alignment.\n"
+            "• Deterministic Daily Rotation: Uses a daily date seed so every single day highlights a fresh top-tier stock.\n"
+            "• Interactive Spotlight: Click '🎲 Next Pick' to cycle through today's top candidate setups."
+        )
+        messagebox.showinfo("Everyday New Feature Methodology", msg)
 
     # ── Instant Synchronous Local DB Load ───────────────────────────────
 
