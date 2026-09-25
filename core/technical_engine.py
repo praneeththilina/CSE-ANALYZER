@@ -63,6 +63,8 @@ class TechnicalEngine:
 
         rs = avg_gain / (avg_loss.replace(0, np.nan))
         df["rsi"] = 100 - (100 / (1 + rs))
+        df.loc[(avg_loss == 0) & (avg_gain > 0), "rsi"] = 100.0
+        df.loc[(avg_loss == 0) & (avg_gain == 0), "rsi"] = 50.0
         df["rsi"] = df["rsi"].fillna(50.0)
 
         # Divergence Detection over a 15-bar lookback window
@@ -249,7 +251,8 @@ class TechnicalEngine:
             curr_cluster = [levels[0]]
 
             for lv in levels[1:]:
-                if (lv - curr_cluster[0]) / curr_cluster[0] <= tolerance:
+                base_val = curr_cluster[0] if curr_cluster[0] != 0 else 1.0
+                if abs(lv - curr_cluster[0]) / base_val <= tolerance:
                     curr_cluster.append(lv)
                 else:
                     clusters.append((float(np.mean(curr_cluster)), len(curr_cluster)))
@@ -510,8 +513,8 @@ class TechnicalEngine:
         high_20d = float(h.iloc[-21:-1].max()) if len(df) >= 21 else float(h.max())
         is_20d_breakout = last_c > high_20d
 
-        dist_high = round(((last_c - high_52w) / high_52w) * 100.0, 2)
-        dist_low = round(((last_c - low_52w) / low_52w) * 100.0, 2)
+        dist_high = round(((last_c - high_52w) / high_52w) * 100.0, 2) if high_52w > 0 else 0.0
+        dist_low = round(((last_c - low_52w) / low_52w) * 100.0, 2) if low_52w > 0 else 0.0
 
         return {
             "is_52w_high": is_52w_high,
