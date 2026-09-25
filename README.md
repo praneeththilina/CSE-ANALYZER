@@ -10,6 +10,7 @@ Styled with the modern **Windows 11 Fluent Light Theme (`sv-ttk` + custom tokens
 
 - **Market Dashboard**: 
   - Real-time overview with 6 summary KPI cards (Total Symbols, Enabled Symbols, Total Bars, Last Bar Date, 7-Day Signals).
+  - **Everyday New Feature**: Daily Stock Spotlight & Insight banner with deterministic daily pick rotation, target edges, stop loss levels, composite ratings, and interactive candidate cycling.
   - Synchronous local database loading so all tables and cards appear simultaneously with zero pop-in.
   - Top Gainers & Top Losers table with live price, volume, and percentage change.
   - Recent QQE trading signals table with 1-click double-click to view charts.

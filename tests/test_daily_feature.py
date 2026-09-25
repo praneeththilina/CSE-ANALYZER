@@ -99,6 +99,15 @@ class TestDailyFeature(unittest.TestCase):
         self.assertGreater(feat["stop_loss"], 0)
         self.assertTrue(len(feat["highlight_reason"]) > 0)
 
+    def test_get_daily_featured_stock_with_offset(self):
+        feat0 = self.engine.get_daily_featured_stock(offset=0)
+        feat1 = self.engine.get_daily_featured_stock(offset=1)
+
+        self.assertIn(feat0["symbol"], ["COMB.N0000", "JKH.N0000"])
+        self.assertIn(feat1["symbol"], ["COMB.N0000", "JKH.N0000"])
+        self.assertIn("metrics", feat0)
+        self.assertIn("metrics", feat1)
+
     def test_dashboard_ui_daily_feature_section(self):
         try:
             root = tk.Tk()
@@ -126,6 +135,11 @@ class TestDailyFeature(unittest.TestCase):
 
         tab._on_f_ai_intel()
         self.assertIsNotNone(getattr(app, "switched_intel", None))
+
+        # Verify next pick cycling callback works cleanly
+        self.assertEqual(tab._daily_feature_offset, 0)
+        tab._on_f_next_pick()
+        self.assertEqual(tab._daily_feature_offset, 1)
 
         root.destroy()
 
