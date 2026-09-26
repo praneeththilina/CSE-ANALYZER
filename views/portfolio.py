@@ -337,6 +337,7 @@ class PortfolioTab(ttk.Frame):
         ttk.Entry(top_row, textvariable=self.custom_weights_var, width=30).pack(side="left", padx=(0, 12))
 
         ttk.Button(top_row, text="⚖️ Calculate Rebalance Plan", command=self._on_calculate_rebalance, style="Accent.TButton").pack(side="left", padx=4)
+        ttk.Button(top_row, text="📥 Export Plan CSV", command=self._export_rebalance_csv).pack(side="left", padx=4)
 
         # Rebalance Trade Plan Treeview
         rebal_table_frame = ttk.Frame(self.rebalance_card.body)
@@ -418,6 +419,34 @@ class PortfolioTab(ttk.Frame):
             self.app.set_status(res.get("summary", "Rebalance calculation complete."))
 
         ThreadedTask(self.app.root, target=task, on_done=on_done, on_error=self._on_error).start()
+
+    def _export_rebalance_csv(self):
+        import csv
+        from tkinter import filedialog
+        children = self.tree_rebal.get_children()
+        if not children:
+            messagebox.showinfo("Export Rebalance Plan", "No rebalance trade plan rows available to export. Calculate a rebalance plan first.")
+            return
+
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")],
+            title="Export Rebalance Plan to CSV"
+        )
+        if not filename:
+            return
+
+        try:
+            with open(filename, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(["Symbol", "Action", "Price (LKR)", "Current Qty", "Current %", "Target %", "Target Qty", "Trade Shares", "Est Value (LKR)"])
+                for item_id in children:
+                    vals = self.tree_rebal.item(item_id, "values")
+                    writer.writerow(vals)
+            messagebox.showinfo("Export Complete", f"Successfully exported rebalance plan to CSV:\n{filename}")
+            self.app.set_status(f"Exported rebalance plan to {filename}")
+        except Exception as e:
+            messagebox.showerror("Export Error", str(e))
 
     def _export_csv(self):
         import csv
