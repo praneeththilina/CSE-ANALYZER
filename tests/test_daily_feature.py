@@ -99,6 +99,12 @@ class TestDailyFeature(unittest.TestCase):
         self.assertGreater(feat["stop_loss"], 0)
         self.assertTrue(len(feat["highlight_reason"]) > 0)
 
+    def test_get_daily_featured_stock_date_offset(self):
+        feat0 = self.engine.get_daily_featured_stock(date_offset=0)
+        feat1 = self.engine.get_daily_featured_stock(date_offset=1)
+        self.assertIn(feat0["symbol"], ["COMB.N0000", "JKH.N0000"])
+        self.assertIn(feat1["symbol"], ["COMB.N0000", "JKH.N0000"])
+
     def test_dashboard_ui_daily_feature_section(self):
         try:
             root = tk.Tk()
@@ -126,6 +132,10 @@ class TestDailyFeature(unittest.TestCase):
 
         tab._on_f_ai_intel()
         self.assertIsNotNone(getattr(app, "switched_intel", None))
+
+        # Test Next Spotlight button action
+        tab._on_f_next_spotlight()
+        self.assertEqual(tab._featured_offset, 1)
 
         root.destroy()
 

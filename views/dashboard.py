@@ -26,6 +26,7 @@ class DashboardTab(ttk.Frame):
     def __init__(self, parent, app: MainApp):
         super().__init__(parent, padding=(16, 12))
         self.app = app
+        self._featured_offset = 0
         self._build_ui()
         # Immediately populate cards, gainers, losers, and signals from DB
         self._load_local_data()
@@ -212,6 +213,7 @@ class DashboardTab(ttk.Frame):
         f_actions = ttk.Frame(self.f_right)
         f_actions.pack(anchor="e")
 
+        ttk.Button(f_actions, text="🔀 Next Spotlight", command=self._on_f_next_spotlight).pack(side="left", padx=2)
         ttk.Button(f_actions, text="📈 Chart", command=self._on_f_view_chart).pack(side="left", padx=2)
         ttk.Button(f_actions, text="⭐ Watchlist", command=self._on_f_add_watchlist).pack(side="left", padx=2)
         ttk.Button(f_actions, text="💼 Portfolio", command=self._on_f_add_portfolio).pack(side="left", padx=2)
@@ -262,6 +264,11 @@ class DashboardTab(ttk.Frame):
         sym = getattr(self, "_current_featured_symbol", None)
         if sym:
             self.app.switch_to_intel(sym)
+
+    def _on_f_next_spotlight(self):
+        self._featured_offset += 1
+        feat = self.app.engine.get_daily_featured_stock(date_offset=self._featured_offset)
+        self._apply_daily_feature(feat)
 
     # ── Instant Synchronous Local DB Load ───────────────────────────────
 
