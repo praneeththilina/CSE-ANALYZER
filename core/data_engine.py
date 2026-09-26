@@ -2502,15 +2502,16 @@ class DataEngine:
 
     # ── Everyday New Feature: Daily Stock Spotlight & Insight ─────────────
 
-    def get_daily_featured_stock(self) -> Dict[str, Any]:
+    def get_daily_featured_stock(self, date_offset: int = 0) -> Dict[str, Any]:
         """
         Determines and returns the Everyday New Feature (Daily Stock Spotlight & Insight).
-        Deterministically selects today's featured stock using today's date seed
+        Deterministically selects today's featured stock using today's date seed + date_offset
         from the top composite / signal scored equities in the database.
         """
+        target_date = date.today() + timedelta(days=date_offset)
         today_date = date.today()
-        today_str = today_date.strftime("%Y-%m-%d")
-        day_seed = int(today_date.strftime("%Y%m%d"))
+        today_str = target_date.strftime("%Y-%m-%d")
+        day_seed = int(target_date.strftime("%Y%m%d")) + date_offset
 
         try:
             candidates = self.scan_equity_signals(strategy_mode="all", min_score=40, limit=20)

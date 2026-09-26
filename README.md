@@ -11,6 +11,7 @@ Styled with the modern **Windows 11 Fluent Light Theme (`sv-ttk` + custom tokens
 - **Market Dashboard**: 
   - Real-time overview with 6 summary KPI cards (Total Symbols, Enabled Symbols, Total Bars, Last Bar Date, 7-Day Signals).
   - Synchronous local database loading so all tables and cards appear simultaneously with zero pop-in.
+  - **Everyday New Feature (Daily Stock Spotlight & Insight)**: Deterministically picks a daily featured CSE equity with algorithmic composite score, recommendation, targets, stop-loss, "Next Spotlight" candidate cycling, and 1-click integration with Charts, Watchlist, Portfolio, and Gemini AI.
   - Top Gainers & Top Losers table with live price, volume, and percentage change.
   - Recent QQE trading signals table with 1-click double-click to view charts.
   - One-click daily scan to fetch latest CSE historical bars and recompute signals.
