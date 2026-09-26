@@ -345,6 +345,31 @@ class TestCoreEngines(unittest.TestCase):
         self.assertEqual(comb_trade["action"], "BUY")
         self.assertEqual(jkh_trade["action"], "SELL")
 
+    def test_portfolio_rebalance_custom_weights(self):
+        holdings = [
+            {"symbol": "COMB.N0000", "current_price": 100.0, "quantity": 1000, "current_value": 100000.0},
+            {"symbol": "JKH.N0000", "current_price": 200.0, "quantity": 1000, "current_value": 200000.0}
+        ]
+        # Custom allocation: 80% COMB (240k target), 20% JKH (60k target)
+        custom_weights = {"COMB.N0000": 80.0, "JKH.N0000": 20.0}
+        res = RiskScorecardEngine.calculate_portfolio_rebalance(
+            holdings=holdings,
+            target_mode="CUSTOM",
+            custom_weights=custom_weights,
+            portfolio_cash=0.0
+        )
+        self.assertEqual(res["total_portfolio_value"], 300000.0)
+        comb_trade = next(t for t in res["rebalance_trades"] if t["symbol"] == "COMB.N0000")
+        jkh_trade = next(t for t in res["rebalance_trades"] if t["symbol"] == "JKH.N0000")
+
+        self.assertEqual(comb_trade["target_pct"], 80.0)
+        self.assertEqual(comb_trade["action"], "BUY")
+        self.assertEqual(comb_trade["shares_to_trade"], 1400) # (240k - 100k) / 100 = 1400
+
+        self.assertEqual(jkh_trade["target_pct"], 20.0)
+        self.assertEqual(jkh_trade["action"], "SELL")
+        self.assertEqual(jkh_trade["shares_to_trade"], 700) # (200k - 60k) / 200 = 700
+
     def test_watchlist_expiry_and_frequency(self):
         with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
             db_path = tmp.name

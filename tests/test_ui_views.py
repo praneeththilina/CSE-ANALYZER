@@ -94,6 +94,39 @@ class TestUIViewsHeadless(unittest.TestCase):
 
         app.destroy()
 
+    def test_portfolio_rebalance_export_csv(self):
+        """Test portfolio rebalancing CSV export method in PortfolioTab."""
+        db_path = self.db_path
+        orig_init = DataEngine.__init__
+
+        def custom_init(self_de, *args, **kwargs):
+            kwargs["db_path"] = db_path
+            orig_init(self_de, *args, **kwargs)
+
+        with patch.object(DataEngine, "__init__", custom_init):
+            app = main_app_mod.MainApp(self.root)
+
+        portfolio_page = app.portfolio
+        # Populate tree_rebal with test data
+        portfolio_page.tree_rebal.insert("", "end", values=(
+            "COMB.N0000", "BUY", "100.00", "1000", "33.3%", "50.0%", "1500", "500", "50,000.00"
+        ))
+
+        with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp_csv:
+            export_filename = tmp_csv.name
+
+        with patch("tkinter.filedialog.asksaveasfilename", return_value=export_filename), \
+             patch("tkinter.messagebox.showinfo") as mock_info:
+            portfolio_page._export_rebalance_csv()
+            mock_info.assert_called_once()
+
+        with open(export_filename, "r", encoding="utf-8") as f:
+            content = f.read()
+            self.assertIn("Symbol,Action,Price (LKR)", content)
+            self.assertIn("COMB.N0000,BUY,100.00,1000,33.3%,50.0%,1500,500,\"50,000.00\"", content)
+
+        app.destroy()
+
 
 if __name__ == "__main__":
     unittest.main()
